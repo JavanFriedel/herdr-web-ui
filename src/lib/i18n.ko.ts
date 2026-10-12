@@ -98,6 +98,8 @@ export const KO: Record<string, string> = {
   "Composer": "입력창",
   "Enter sends": "Enter로 보내기",
   "When off, Mod+Enter sends": "끄면 Mod+Enter로 보냅니다",
+  "Autocorrect": "자동 수정",
+  "The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.": "이 기기에서 메시지 상자에 입력하는 내용을 키보드가 고치고, 제안하고, 문장 첫 글자를 대문자로 바꿉니다. 끄면 입력한 그대로 남습니다.",
   "Files at once": "한 번에 첨부할 파일 수",
   "How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.": "붙여넣기, 선택 또는 끌어놓기 한 번에 첨부되는 파일 수입니다. 나머지는 제외되며 메시지 입력창에 몇 개인지 표시됩니다.",
   "Attach fewer files at once": "한 번에 첨부할 파일 줄이기",

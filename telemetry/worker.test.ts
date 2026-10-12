@@ -63,6 +63,7 @@ const settings: TelemetrySettings = {
   pageOverlapRows: 1,
   chatPageKeys: false,
   attachLimit: 20,
+  chatAutocorrect: false,
 };
 const now = new Date("2026-10-08T13:45:00Z");
 

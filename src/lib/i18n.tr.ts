@@ -98,6 +98,8 @@ export const TR: Record<string, string> = {
   "Composer": "Mesaj yazma alanı",
   "Enter sends": "Enter gönderir",
   "When off, Mod+Enter sends": "Kapalıyken Mod+Enter gönderir",
+  "Autocorrect": "Otomatik düzeltme",
+  "The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.": "Bu cihazda klavye, mesaj kutusuna yazdıklarınızı düzeltir, öneride bulunur ve cümle başlarını büyük harf yapar. Kapalıyken metin tam yazıldığı gibi kalır.",
   "Files at once": "Tek seferde dosya",
   "How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.": "Bir yapıştırma, seçim veya bırakmanın eklediği dosya sayısı. Kalanlar eklenmez ve mesaj kutusu kaç tane olduğunu söyler.",
   "Attach fewer files at once": "Tek seferde daha az dosya ekle",

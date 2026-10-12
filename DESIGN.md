@@ -1150,6 +1150,9 @@ One set for both themes: the card is island black wherever it shows.
   is ignored. Stop sends Escape. While the agent works and a draft shows Send in Stop's place,
   Escape in the box is Stop; an open completion menu takes the first Escape. Working Send
   schedules a pending message; its Send now action submits that same message now.
+- The message box and queued messages turn off the keyboard's spell check, capitals and autocorrect,
+  since commands, paths and code go through them; **Autocorrect** (Settings → Chat, this device) turns
+  all three on. The terminal input line keeps its own attributes.
 
 ### Voice input
 - A mic button sits beside the add button in the composer and beside Send in the terminal input line; it
@@ -1225,7 +1228,7 @@ One set for both themes: the card is island black wherever it shows.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
-  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
+  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, autocorrect, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
   lines, Markdown width), **Terminal** (font size, 80 columns in a split, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings, then **Paging** with a 0–100 line overlap stepper; one line by default, zero for a full viewport), **Phone & devices** (the phone address,

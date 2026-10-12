@@ -113,6 +113,9 @@ export interface Settings {
   chatWidth: ChatWidth;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
+  /** the device keyboard's autocorrect, suggestions, spell check and sentence capitals in the composer and queued
+   *  messages (lib/compose.ts composerKeyboard); off by default, as commands and paths go through the same box */
+  chatAutocorrect: boolean;
   /** how many files one paste, pick or drop attaches; the rest are left out with a note */
   attachLimit: number;
   /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
@@ -237,6 +240,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     pageOverlapRows: settings.pageOverlapRows,
     chatPageKeys: settings.chatPageKeys,
     attachLimit: settings.attachLimit,
+    chatAutocorrect: settings.chatAutocorrect,
   };
 }
 
@@ -253,7 +257,7 @@ export const SETTING_SCOPE = {
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
   quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
-  narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", chatWidth: "device", enterSends: "device", attachLimit: "device",
+  narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", chatWidth: "device", enterSends: "device", chatAutocorrect: "device", attachLimit: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
   voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
   // Viewer layout follows this screen, as chatWidth does; highlighting remains shared.
@@ -293,6 +297,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontFamily: "",
   chatWidth: "default",
   enterSends: true,
+  chatAutocorrect: false,
   attachLimit: 20,
   autoSendQueued: true,
   showThinking: false,
@@ -466,6 +471,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
+    chatAutocorrect: typeof record["chatAutocorrect"] === "boolean" ? record["chatAutocorrect"] : DEFAULT_SETTINGS.chatAutocorrect,
     attachLimit: typeof record["attachLimit"] === "number" && Number.isFinite(record["attachLimit"])
       ? Math.min(ATTACH_LIMIT_MAX, Math.max(ATTACH_LIMIT_MIN, Math.round(record["attachLimit"])))
       : DEFAULT_SETTINGS.attachLimit,

@@ -100,6 +100,8 @@ export const JA: Record<string, string> = {
   "Composer": "入力欄",
   "Enter sends": "Enter で送信",
   "When off, Mod+Enter sends": "オフの場合は Mod+Enter で送信します",
+  "Autocorrect": "自動修正",
+  "The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.": "この端末で、メッセージ欄に入力した内容をキーボードが修正・予測し、文頭を大文字にします。オフの場合は入力したとおりのままです。",
   "Files at once": "一度に添付するファイル数",
   "How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.": "1 回の貼り付け、選択、ドロップで添付するファイルの数です。残りは添付されず、何件かをメッセージ欄に表示します。",
   "Attach fewer files at once": "一度に添付するファイルを減らす",

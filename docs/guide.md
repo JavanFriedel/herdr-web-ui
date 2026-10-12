@@ -537,6 +537,9 @@ the screen. Shift+PageUp/PageDown alone retains the focused control's own behavi
 
 Enter sends and Shift+Enter adds a line. Settings can switch sending to Mod+Enter.
 
+The message box leaves the keyboard's autocorrect, suggestions and capitals off, so commands
+and paths go as typed. Turn on **Settings → Chat → Autocorrect** to type prose with them on this device.
+
 ## How it works
 
 ```mermaid
