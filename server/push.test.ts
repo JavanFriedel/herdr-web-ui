@@ -561,3 +561,37 @@ describe("push resync after lost status events", () => {
     expect(fake.received.length).toBe(sent + 2);
   });
 });
+
+describe("the person at this PC (HERDR_WEB_PRESENCE_CMD)", () => {
+  it("holds every alert while the person is at the PC, and sends again once they are away", async () => {
+    let atPc = true;
+    const push = subscribed({ atThisPc: async () => atPc });
+    push.seed([pane("w1:p1", "working", "claude: fix the build")]);
+    await push.onStatus("w1:p1", "blocked");
+    await push.onEnded("w1:p1");
+    expect(fake.received).toHaveLength(0);
+    // the confirmation a device asked for is not an alert: it still goes out
+    expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: true });
+    atPc = false;
+    push.seed([pane("w1:p2", "working", "claude")]);
+    await push.onStatus("w1:p2", "blocked");
+    expect(fake.received.map((r) => r.payload.body)).toEqual(["Alerts are on for this device", "waiting for your input"]);
+  });
+
+  it("is asked only when an alert would go out, after a window in use already held it", async () => {
+    let asked = 0;
+    let inUse = true;
+    const push = subscribed({ inUse: () => inUse, atThisPc: async () => { asked += 1; return false; } });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    // a change that is no alert asks nothing
+    await push.onStatus("w1:p1", "working");
+    // a window in use holds the alert before the command would run
+    await push.onStatus("w1:p1", "blocked");
+    expect(asked).toBe(0);
+    inUse = false;
+    await push.onStatus("w1:p1", "working");
+    await push.onStatus("w1:p1", "blocked");
+    expect(asked).toBe(1);
+    expect(fake.received).toHaveLength(1);
+  });
+});

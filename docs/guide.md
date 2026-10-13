@@ -282,6 +282,13 @@ While the app is in front on any device, its window visible and focused, no aler
 device: you are already looking at the change. Alerts resume once no window of the app is in use.
 The test push is always sent.
 
+herdr cannot tell when you are at the PC working in something else. `HERDR_WEB_PRESENCE_CMD`
+(see [Configuration](#configuration)) names a command that can: it exits `0` while you are there,
+and alerts are held the same way. For example, with less than three minutes of keyboard and mouse
+idle time on macOS,
+`[ "$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')" -lt 180 ]`,
+or on Linux with X11, `[ "$(xprintidle)" -lt 180000 ]`.
+
 On a phone:
 - Agent panes open in the chat.
 - The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).
@@ -454,6 +461,7 @@ Observe connections cannot take a pane, and a displaced bridge never takes it ba
 | `HERDR_WEB_HERDR_BIN` | `herdr` | herdr executable used for terminal attach |
 | `HERDR_WEB_APP_NAME` | unset (`herdr`) | The name the installed app has on a phone or computer, for example the PC's name. Each PC installs as an app of its own, and without it they are all called `herdr`. An app already installed takes the new name when the browser next updates it, usually within a day or two, without a reinstall. Keep it short: a home screen cuts a long label |
 | `HERDR_WEB_PASTE_DIR` | `<pane cwd>/.herdr-web-ui` | Where pasted and attached files are saved: an absolute path or `~/…`. Set it to keep them out of your projects; an agent may then ask before reading one. It covers the panes of this server's PC; a remote PC keeps the default |
+| `HERDR_WEB_PRESENCE_CMD` | unset | A shell command that says whether you are at this PC, asked just before an alert would go out. Exit `0`: you are there, and no device gets the alert, as while a window of the app is in use. Exit `1`: you are away, and it goes out. Another exit, or a command still running after 3 s, is logged and counts as away. One answer serves alerts for 10 s. See [On your phone](#on-your-phone) |
 | `CODEX_HOME` | `~/.codex` | Where Codex sessions are read |
 
 ## Updates
