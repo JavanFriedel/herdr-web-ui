@@ -50,6 +50,12 @@ try {
       remote.onMessage((raw) => {
         const message = JSON.parse(String(raw));
         if (message.type === "error") console.log("terminal error", message);
+        // Herdr's screen stream turns bracketed paste on in its first screen, which can land after the
+        // key bar is ready and after the reset below: this run checks xterm with it off throughout.
+        if (message.type === "pty-data" && typeof message.data === "string" && message.data.includes("\x1b[?2004h")) {
+          socket.send(JSON.stringify({ ...message, data: message.data.replaceAll("\x1b[?2004h", "") }));
+          return;
+        }
         socket.send(raw);
       });
       socket.onMessage((raw) => { frames.push(JSON.parse(String(raw))); remote.send(raw); });
@@ -59,7 +65,7 @@ try {
       ? "Meta+Shift+Comma" : "Control+Shift+Comma";
     const ctrl = page.locator('[data-key="Control"]');
     await until(async () => !(await ctrl.isDisabled()), "terminal input ready");
-    // Herdr's screen stream enables bracketed paste; exercise xterm with it disabled too.
+    // Exercise xterm with bracketed paste off (the route above keeps herdr's stream from turning it on).
     ws!.send(JSON.stringify({ type: "pty-data", pane_id: pane, data: "\x1b[?2004l" }));
     const input = page.locator(".xterm-helper-textarea");
     await input.focus();

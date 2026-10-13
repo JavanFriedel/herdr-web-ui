@@ -62,6 +62,7 @@ it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops 
     expect(code, err + out + (existsSync(join(state, "server.log")) ? readFileSync(join(state, "server.log"), "utf8") : "")).toBe(expectedCode);
     return out;
   };
+  let failed = false;
   try {
     await run("start");
     // start's process has exited, but the managed server and its children must still answer.
@@ -143,8 +144,12 @@ it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops 
         rmSync(join(state, "server.pid"));
       }
     }
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    if (existsSync(join(state, "server.pid"))) await run("stop");
+    // after a failure, a stop that fails too must not replace the error that says what went wrong
+    if (existsSync(join(state, "server.pid"))) await run("stop").catch(error => { if (!failed) throw error; });
     await new Promise<void>(resolve => peer.close(() => resolve()));
     rmSync(scratch, { recursive: true, force: true });
   }
