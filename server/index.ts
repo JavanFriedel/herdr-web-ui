@@ -87,6 +87,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
+import { type PresenceCheck, presenceFromEnv } from "./presence.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
@@ -457,6 +458,8 @@ export function createServer(
     alertTiming?: Partial<AlertTiming>;
     /** accept plain-http loopback push endpoints (server/push.ts); only tests delivering to push.fake.ts set it */
     pushLoopbackHttp?: boolean;
+    /** whether the person is at this PC, holding alerts (server/presence.ts); unset: `HERDR_WEB_PRESENCE_CMD`, null: never asked */
+    presence?: PresenceCheck | null;
     /** how long a turn's end is held for its background work (server/background-wait.ts); tests shorten it */
     backgroundWait?: { grace: number; limit: number };
     /** Clock for background holds and alert turn durations; tests advance it explicitly. */
@@ -1017,6 +1020,7 @@ export function createServer(
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     inUse: () => present.size > 0,
+    atThisPc: (options.presence === undefined ? presenceFromEnv() : options.presence) ?? undefined,
     lookupTitle: async (paneId) => {
       return paneTitle(await paneGet(paneId));
     },

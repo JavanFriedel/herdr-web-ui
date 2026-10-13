@@ -25,6 +25,10 @@
  * connected page that is visible and has focus, which says so over its WebSocket): the
  * person is at a screen that already shows the change (#751). It is asked when an alert
  * would go out, so a window brought forward while the alert waits still holds it back.
+ *
+ * Nor while the person is at this PC (`atThisPc`: the command `HERDR_WEB_PRESENCE_CMD` names,
+ * server/presence.ts), working somewhere herdr cannot see. It is asked last, once the cheaper
+ * checks let the alert through, since it runs a process.
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -110,6 +114,8 @@ export interface PushServiceOptions {
   canDeliver?: (deviceId: string | null | undefined) => boolean;
   /** whether a window of the app is in use right now: then no alert goes to any device (the test push still does) */
   inUse?: () => boolean;
+  /** whether the person is at this PC by their own command (server/presence.ts): then, as with `inUse`, no alert goes out */
+  atThisPc?: () => Promise<boolean>;
   /** accept plain-http loopback endpoints: only for the tests' fake push service (push.fake.ts) */
   loopbackHttp?: boolean;
 }
@@ -428,6 +434,7 @@ export function createPushService(options: PushServiceOptions): PushService {
         const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
         // the title can wait for herdr: a window that came into use meanwhile still holds the alert
         if (options.inUse?.()) return;
+        if (await options.atThisPc?.()) return;
         // a device that dropped out meanwhile is not written to
         const live = to.flatMap((subscription) => {
           const current = store().get(subscription.endpoint);
@@ -443,7 +450,7 @@ export function createPushService(options: PushServiceOptions): PushService {
       turnStart.delete(key);
       // an ended terminal is a finish of its own: a device that wants none hears none
       const to = [...store().values()].filter((subscription) => (subscription.alerts ?? DEFAULT_ALERTS).done !== "off");
-      if (to.length === 0 || options.inUse?.()) return;
+      if (to.length === 0 || options.inUse?.() || await options.atThisPc?.()) return;
       // the pane may already be gone from herdr: the seeded title is what is left
       await broadcast({ ...endedMessage(paneId, titles.get(key) ?? paneId), ...where(key, machineId), tag: paneNotificationTag(paneId, machineId) }, "normal", to);
     },
