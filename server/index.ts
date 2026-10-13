@@ -34,6 +34,7 @@ import { SessionPlans } from "./session-plan.ts";
 import { codexOpenRollout, paneCodexHome } from "./codex.ts";
 import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
+import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile, crossSiteFileRead } from "./file-view.ts";
@@ -304,6 +305,7 @@ async function agentLaunch(paneId: string, agent: AgentPayload): Promise<{ agent
         }
       }
     }
+    launchedAgents.launched(paneId, kind);
     return { agent_started: true };
   } catch (error) {
     return {
@@ -1060,6 +1062,8 @@ export function createServer(
     // not waited for: finding a transcript costs process calls, and a snapshot must not wait on them.
     // The plans come after: a Claude pane's transcript is the one the subagent tracker found
     void claudeAgents.refresh(named.panes).catch(() => undefined).then(() => plans.refresh(named.panes)).catch(() => undefined);
+    // an agent this server started has had no turn yet: its start screen is no work (launched-agents.ts)
+    for (const pane of named.panes) pane.agent_status = launchedAgents.settle(pane.pane_id, pane.agent_status);
     return named;
   };
   const backgroundOf = (paneId: string): number => omo.backgroundOf(paneId) || claudeAgents.countOf(paneId);
@@ -1555,7 +1559,8 @@ export function createServer(
   const bridgeAgents = machines ? null : bridgeAgentNews(() => broadcastAll({ type: "session-changed" }));
 
   const collector = startStatusCollector({
-    onStatus: (paneId, raw, agent, replay) => {
+    onStatus: (paneId, read, agent, replay) => {
+      const raw = launchedAgents.settle(paneId, read);
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
       // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
       if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;

@@ -55,7 +55,6 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { cachedPaneCommands } from "../lib/paneCommandCache.ts";
-import { ComposerStash } from "./ComposerStash.tsx";
 import { useT } from "../lib/i18n.ts";
 import { modalOpen } from "../lib/focus.ts";
 
@@ -812,15 +811,6 @@ export function Composer({
     }
   }, []);
 
-  /** a saved draft put in the box, or the box emptied by saving it: the chips go, their @paths stay in the text */
-  const replaceDraft = useCallback((next: string) => {
-    for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl);
-    placedMentions.current.clear();
-    setAttachments([]);
-    setNote(null);
-    setTextAndCaret(next, next.length);
-  }, [setTextAndCaret]);
-
   /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over */
   const send = useCallback((clearDraft?: string) => {
     if (composingRef.current) return;
@@ -1239,7 +1229,6 @@ export function Composer({
           >
             <Plus aria-hidden="true" />
           </button>
-          <ComposerStash storageId={paneStorageId(machineId, paneId)} text={text} busy={sending || uploading} onReplace={replaceDraft} onNote={setNote} />
           {dictation.shown && <MicButton dictation={dictation} />}
           <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} claude={agent === "claude"} plan={plan} />
         </div>

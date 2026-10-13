@@ -1164,7 +1164,7 @@ One set for both themes: the card is island black wherever it shows.
   completion popover and the background-task list; inside, the image strip is its own row at the top, then the auto-growing
   message box as a row of its own at the card's full width, then ONE row of controls under it,
   ordered as t3code's composer orders its own: at the row's start the status content (the model
-  group, below); then the add button (lucide `Plus`, named "Attach files"), the stash, the mic
+  group, below); then the add button (lucide `Plus`, named "Attach files"), the mic
   when voice input shows it (see Voice input), and the background-task chip; at the row's end
   ONE round Send/Stop button. The message's text and the model group's mark both start
   `--space-4` in (`--space-3` on a phone, `480px` and below), and the round button ends

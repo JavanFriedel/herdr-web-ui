@@ -1246,6 +1246,7 @@ export function App() {
         const current = selectionRef.current;
         if (current.machineId === machineId && current.paneId === previousPaneId) selectPane(paneId);
       },
+      agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
       openFind: () => {
         if (selectedPaneId === null) return;
         setView("terminal");
@@ -1667,7 +1668,7 @@ export function App() {
         onClose={closeNewSession}
         onCreated={(paneId, agentStarted) => {
           closeNewSession();
-          if (agentStarted) lenses.startedAgent(paneStorageId(newSessionMachineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true);
+          if (agentStarted) actions.agentStarted(newSessionMachineId, paneId);
           selectTarget(newSessionMachineId, paneId);
           void load();
         }}

@@ -668,6 +668,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
         const repoKey = worktreeDialog.workspace.worktree?.repo_key;
         if (repoKey) setWorktreeCollapsed(repoKey, false);
         setWorktreeDialog(null);
+        if (opened.agent_started === true) actions.agentStarted(machineId, opened.pane_id);
         actions.selectPane(opened.pane_id);
       }} />}
     </div>
