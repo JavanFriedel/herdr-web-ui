@@ -30,6 +30,18 @@ export interface ChatTimelineProps<Row extends ChatTimelineRow> {
   renderRow: (row: Row, index: number) => ReactNode;
 }
 
+// No row is this object, so the list finds nothing to scroll to.
+const NO_ROW = Object.freeze({});
+/**
+ * The list's scrollToEnd does not scroll at once: it waits for the list's next commit, and then
+ * for the layout to settle after a data change (up to 800 ms). A follow asked for while the reader
+ * was at the end can so land after the reader paged or scrolled away, and pull them back. Any newer
+ * scroll request supersedes a waiting one; a request for no row supersedes it without moving.
+ */
+export function dropPendingListScroll(list: LegendListRef | null): void {
+  void list?.scrollToItem({ item: NO_ROW, animated: false });
+}
+
 /** One scroll owner; selected and focused rows stay real DOM nodes outside its window. */
 export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source, scroller, listRef, following, smoothFollow, memories, outputChanged, header, footer, label, matchKey, finding, onScroll, renderRow }: ChatTimelineProps<Row>) {
   const [selectionKeys, setSelectionKeys] = useState<string[]>([]);

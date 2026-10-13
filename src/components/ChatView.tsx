@@ -15,7 +15,7 @@ import { Markdown, ReservedImage } from "./Markdown.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
-import { ChatTimeline } from "./ChatTimeline.tsx";
+import { ChatTimeline, dropPendingListScroll } from "./ChatTimeline.tsx";
 import { ChatFind } from "./ChatFind.tsx";
 import { ChatMinimap } from "./ChatMinimap.tsx";
 import { minimapTurns } from "../lib/chatMinimap.ts";
@@ -1252,7 +1252,12 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       // At the loaded top, PageUp still asks for the earlier page the scroll position cannot reach.
       if (node.scrollTop === before) { if (direction < 0) onScroll(); return; }
       lastScrollTop.current = before;
-      if (direction < 0) pagingAway.current = true;
+      if (direction < 0) {
+        pagingAway.current = true;
+        // Find, a minimap tick and a restored place scroll through the list, which drops a follow
+        // still waiting there; this native page scroll does not, so drop it here, or it lands after.
+        dropPendingListScroll(timeline.current);
+      }
       // Apply the intent before output or a deferred scroll event can restore following.
       onScroll();
     };
