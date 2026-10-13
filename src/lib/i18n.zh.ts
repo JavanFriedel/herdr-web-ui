@@ -109,6 +109,8 @@ export const ZH: Record<string, string> = {
   "Composer": "输入框",
   "Enter sends": "按 Enter 发送",
   "When off, Mod+Enter sends": "关闭后按 Mod+Enter 发送",
+  "Autocorrect": "自动更正",
+  "The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.": "在此设备上，键盘会更正、联想你在消息框中输入的内容，并将句首字母大写。关闭后，文字保持输入时的原样。",
   "Files at once": "每次附加的文件数",
   "How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.": "一次粘贴、选择或拖放附加的文件数。其余文件不会附加，消息框会显示数量。",
   "Attach fewer files at once": "每次附加更少文件",

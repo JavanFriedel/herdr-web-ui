@@ -767,3 +767,12 @@ it("keeps plain chat paging opt-in and saves the keyboard choice on this device"
   }
   for (const chatPageKeys of [null, "true", 1]) expect(sanitizeSettings({ chatPageKeys }).chatPageKeys).toBe(false);
 });
+
+it("keeps the composer's keyboard corrections off until this device turns them on", () => {
+  expect(DEFAULT_SETTINGS.chatAutocorrect).toBe(false);
+  expect(SETTING_SCOPE.chatAutocorrect).toBe("device");
+  for (const chatAutocorrect of [true, false]) {
+    expect(sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ chatAutocorrect })))).chatAutocorrect).toBe(chatAutocorrect);
+  }
+  for (const chatAutocorrect of [null, "true", 1]) expect(sanitizeSettings({ chatAutocorrect }).chatAutocorrect).toBe(false);
+});

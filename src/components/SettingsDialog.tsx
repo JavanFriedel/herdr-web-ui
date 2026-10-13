@@ -365,6 +365,9 @@ function ChatPage() {
         <SettingsRow label={t("Enter sends")} description={t("When off, Mod+Enter sends")}>
           <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
         </SettingsRow>
+        <SettingsRow label={t("Autocorrect")} description={t("The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.")}>
+          <Toggle label={t("Autocorrect")} checked={settings.chatAutocorrect} onChange={(chatAutocorrect) => update({ chatAutocorrect })} />
+        </SettingsRow>
         <SettingsRow label={t("Files at once")} description={t("How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.")}>
           <Stepper label={t("Files at once")} value={settings.attachLimit} text={String(settings.attachLimit)} min={ATTACH_LIMIT_MIN} max={ATTACH_LIMIT_MAX} decreaseLabel={t("Attach fewer files at once")} increaseLabel={t("Attach more files at once")} onChange={(attachLimit) => update({ attachLimit })} />
         </SettingsRow>

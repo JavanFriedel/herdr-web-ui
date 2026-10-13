@@ -1399,6 +1399,25 @@ try {
   await setAttachLimit(2, 20);
   console.log("PASS one pick attaches up to the chosen number of files and names what it left out");
 
+  // Settings → Chat → Autocorrect hands the message box to the keyboard's corrections; off, it keeps them away.
+  const keyboardAttributes = () => composer.evaluate((element: HTMLTextAreaElement) =>
+    [element.getAttribute("spellcheck"), element.getAttribute("autocapitalize"), element.getAttribute("autocorrect")]);
+  const setAutocorrect = async (on: boolean) => {
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Chat");
+    const toggle = page.getByRole("switch", { name: "Autocorrect", exact: true });
+    assert.equal(await toggle.getAttribute("aria-checked"), String(!on));
+    await toggle.click();
+    assert.equal(await toggle.getAttribute("aria-checked"), String(on));
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  };
+  assert.deepEqual(await keyboardAttributes(), ["false", "off", "off"], "the keyboard's corrections are off by default");
+  await setAutocorrect(true);
+  assert.deepEqual(await keyboardAttributes(), ["true", "sentences", "on"], "Autocorrect turns the keyboard's corrections on");
+  await setAutocorrect(false);
+  assert.deepEqual(await keyboardAttributes(), ["false", "off", "off"], "turning it off takes them away again");
+  console.log("PASS Settings → Chat → Autocorrect turns the message box's keyboard corrections on and off");
+
   let releaseCreate!: () => void;
   const createGate = new Promise<void>((resolve) => { releaseCreate = resolve; });
   releases.push(releaseCreate);

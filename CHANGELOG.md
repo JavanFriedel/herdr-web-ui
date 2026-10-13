@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Settings → Chat → Autocorrect** lets the device keyboard correct, suggest and capitalize
+  sentences in the message box and queued messages, so phones get autocorrect and suggestions
+  in chat. Off by default; the terminal input line is unchanged.
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any

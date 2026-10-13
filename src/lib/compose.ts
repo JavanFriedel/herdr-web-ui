@@ -24,6 +24,14 @@ export function composerMessage(text: string): string {
   return text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n");
 }
 
+/** The message box's keyboard attributes: off by default, since commands, paths and code go through the same box;
+ * on, the device keyboard corrects, suggests and capitalizes sentences (Settings → Chat → Autocorrect). */
+export function composerKeyboard(autocorrect: boolean): { spellCheck: boolean; autoCapitalize: "sentences" | "off"; autoCorrect: "on" | "off" } {
+  return autocorrect
+    ? { spellCheck: true, autoCapitalize: "sentences", autoCorrect: "on" }
+    : { spellCheck: false, autoCapitalize: "off", autoCorrect: "off" };
+}
+
 /** The text a composer message types, without its submit (HerdrSocket.submit adds the Enter). */
 export function composerPayload(text: string, bracketedPaste: boolean): string {
   const body = composerMessage(text).replace(/\n/g, "\r");

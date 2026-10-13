@@ -83,6 +83,8 @@ export interface TelemetrySettings {
   chatPageKeys: boolean;
   /** files one paste, pick or drop may attach (#863) */
   attachLimit: number;
+  /** the device keyboard's corrections in the composer (#753) */
+  chatAutocorrect: boolean;
 }
 
 /** The browser's full, non-sensitive snapshot. */
@@ -156,6 +158,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   pageOverlapRows: integerBetween(0, 100),
   chatPageKeys: booleanValue,
   attachLimit: integerBetween(1, 50),
+  chatAutocorrect: booleanValue,
 } satisfies Record<keyof TelemetrySettings, (value: unknown) => boolean>;
 
 /** Every key the Worker (telemetry/worker.ts) accepts in a snapshot, and requires. */

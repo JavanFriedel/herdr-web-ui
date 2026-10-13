@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
+import { agentDisplayLabel, composerDelivery, composerKeyboard, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -293,5 +293,12 @@ describe("commands the chat cannot finish", () => {
     expect(terminalOnlyCommand("claude", "/tree")).toBeNull();
     expect(terminalOnlyCommand("codex", "/tree")).toBeNull();
     expect(terminalOnlyCommand(null, "/tree")).toBeNull();
+  });
+});
+
+describe("composerKeyboard", () => {
+  it("keeps the keyboard's corrections off unless the setting turns them on", () => {
+    expect(composerKeyboard(false)).toEqual({ spellCheck: false, autoCapitalize: "off", autoCorrect: "off" });
+    expect(composerKeyboard(true)).toEqual({ spellCheck: true, autoCapitalize: "sentences", autoCorrect: "on" });
   });
 });
