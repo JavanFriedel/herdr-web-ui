@@ -166,6 +166,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         server's environment sets it), path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
+ *  GET    /api/pane/models?pane_id= -> PaneModels (OpenCode 2's live project catalog and selection)
+ *  POST   /api/pane/model SwitchPaneModelRequest -> { ok: true } (session-scoped selection;
+ *         subsequent turns only, 409 for a stale session/location/model, no automatic retries)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
  *         pane's OmO session started, or a Claude Code pane's subagents (no workflows): running ones, then
  *         those that ended in the last day; empty for any other pane or one whose session is not
@@ -497,6 +500,31 @@ export interface ConversationMetadata {
    * response reports its usage. `window` is null when the transcript does not say it.
    */
   context?: { used: number; window: number | null };
+}
+
+/** A session selection, not a provider configuration or a model's default settings. */
+export interface PaneModelSelection {
+  provider_id: string;
+  model_id: string;
+  variant: string | null;
+}
+
+/** GET /api/pane/models?pane_id=: OpenCode 2's live, project-scoped catalog. No credentials or request settings. */
+export interface PaneModels {
+  session_id: string;
+  /** Opaque precondition for the session's location and explicit model selection. */
+  revision: string;
+  current: PaneModelSelection | null;
+  models: { provider_id: string; model_id: string; name: string; variants: string[] }[];
+}
+
+/** POST /api/pane/model: selects a model for subsequent turns; stale session/selection returns 409.
+ * Requires same-origin and x-herdr-machine: 1. Neither terminal input nor configuration is changed. */
+export interface SwitchPaneModelRequest {
+  pane_id: string;
+  session_id: string;
+  revision: string;
+  model: PaneModelSelection;
 }
 
 /** One background task of an OmO session, or one subagent of a Claude Code session (GET /api/pane/omo-tasks), from OmO's task record or the subagent's files. */

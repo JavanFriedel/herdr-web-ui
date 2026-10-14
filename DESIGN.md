@@ -1233,8 +1233,17 @@ One set for both themes: the card is island black wherever it shows.
   only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
   that records no level draws no hairline and no dash, only the name. In the group the ring's
   track is `--border-strong`, the hairlines' colour; a ring left bare on the card keeps `--border`.
-  No part carries a chevron: herdr owns the agent, so none of them opens a menu. It is display only: a `span` with no role, no
-  focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
+  For OpenCode 2, a bridge that offers `/models` makes the model and reasoning labels buttons with
+  chevrons. This group uses `--space-1` gaps and truncates text on narrow cards rather than hiding
+  either control. Each opens a focus-trapped **Choose a model** / **Choose reasoning effort** dialog, a
+  bottom sheet on phones, with choices from that session's live project catalog. Models can be
+  searched by name, provider or id; choosing a model with variants opens its reasoning choices,
+  including **Default**. A save never clears the composer draft, interrupts a turn or edits provider
+  configuration. Loading, empty catalogs and connection failures stay in the dialog; a stale or
+  uncertain save requires **Reload models** before a new explicit choice. Other agents and older
+  remote bridges keep the labels read-only.
+  Read-only parts carry no chevron. They are `span`s with no role, no
+  focus, no hover or pressed state, no pointer cursor; the ring inside the group is the
   one thing to press on desktop; mobile keeps the ring inert. The `title` of the model is the id as received, and the level's is its
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
   cannot reach a title. A pane that names no model draws no group: the mark and the ring stand

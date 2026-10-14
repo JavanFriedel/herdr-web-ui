@@ -1,0 +1,72 @@
+.model-picker {
+  width: min(480px, calc(100vw - var(--space-6)));
+}
+
+.model-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.model-picker-options {
+  overflow-y: auto;
+  min-height: 0;
+  max-height: min(400px, 50dvh);
+}
+
+.model-picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--control-h);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-picker-option:hover,
+.model-picker-option:focus-visible {
+  background: var(--bg-hover);
+}
+
+.model-picker-option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.model-picker-option > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-picker-option > svg {
+  width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+}
+
+.model-picker-name,
+.model-picker-provider {
+  display: block;
+}
+
+.model-picker-provider {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.model-picker-selected {
+  margin: 0 0 var(--space-2);
+  color: var(--text-dim);
+}
+
+.model-picker-error {
+  color: var(--danger-text);
+}

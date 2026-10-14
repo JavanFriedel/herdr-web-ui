@@ -8,6 +8,8 @@ const BUILTINS: Record<string, readonly string[]> = {
   claude: ["clear", "compact", "config", "cost", "effort", "goal", "help", "init", "memory", "model", "permissions", "review", "status", "doctor", "login", "logout", "pr-comments", "release-notes", "terminal-setup", "vim"],
   omp: ["help", "clear", "compact", "model", "new", "sessions", "exit"],
   codex: ["clear", "compact", "diff", "help", "model", "new", "quit", "review", "status"],
+  // These two are handled by the chat's live API selector, not typed into OpenCode's terminal.
+  opencode: ["models", "variants"],
   // pi 0.87.1, as its own palette lists them, less /tree — the way omp's list curates its own
   // commands. The chat reads pi's tree browser as nothing at all: no card, and the pane still looks
   // idle while the terminal waits for arrow keys. Offering the one command that opens it from the
@@ -41,6 +43,7 @@ const DESCRIPTIONS: Record<string, string> = {
   diff: "Show the current diff", quit: "Exit the agent",
   goal: "[condition|clear] — Keep working until a condition is met",
   effort: "Set effort level for model usage",
+  models: "Choose a model", variants: "Choose a model variant",
 };
 
 function description(markdown: string): string {

@@ -17,6 +17,10 @@ function temp(prefix: string): string {
 }
 
 describe("paneCommands", () => {
+  it("offers OpenCode's API-backed model selectors without unrelated native-only commands", () => {
+    expect(paneCommands("opencode", null).map((command) => command.name)).toEqual(["models", "variants"]);
+    expect(paneCommands("opencode", null).every((command) => command.source === "builtin")).toBe(true);
+  });
   it("returns sorted built-ins for supported agents and none for unknown agents", () => {
     const claude = paneCommands("claude", null, temp("commands-home-"));
     expect(claude.some((command) => command.name === "clear" && command.source === "builtin")).toBeTrue();

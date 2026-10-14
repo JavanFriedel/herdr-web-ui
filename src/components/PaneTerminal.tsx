@@ -2772,6 +2772,7 @@ export function PaneTerminal({
             </div>
           ) : null}
           onSend={composerSend}
+          onModelChanged={() => setChatRefresh((value) => value + 1)}
           onAbort={abortTurn}
           onUploadImage={uploadImage}
         />

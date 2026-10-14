@@ -6,6 +6,17 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Choose a model": "모델 선택",
+  "Choose reasoning effort": "추론 수준 선택",
+  "Choose a model before changing reasoning effort.": "추론 수준을 변경하기 전에 모델을 선택하세요.",
+  "Search models…": "모델 검색…",
+  "Loading models…": "모델 불러오는 중…",
+  "No models found": "모델을 찾을 수 없습니다",
+  "Changing model…": "모델 변경 중…",
+  "Reload models": "모델 다시 불러오기",
+  "Back": "뒤로",
+  "Could not load models. Check the OpenCode connection in Terminal.": "모델을 불러올 수 없습니다. 터미널에서 OpenCode 연결을 확인하세요.",
+  "Model change not confirmed. Check Terminal before trying again.": "모델 변경을 확인할 수 없습니다. 다시 시도하기 전에 터미널을 확인하세요.",
   "Find in messages": "메시지에서 찾기",
   "Match case": "대소문자 구분",
   "Search earlier messages": "이전 메시지 검색",

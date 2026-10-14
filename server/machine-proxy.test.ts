@@ -1,15 +1,21 @@
 import { afterAll, describe, expect, it } from "bun:test";
 
-import { handleMachineRequest } from "./machine-api.ts";
+import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
 
 // A remote bridge that answers like the local conversation route: an ETag, then 304 while unchanged.
 const asked: (string | null)[] = [];
 const diffAsked: { path: string; search: string; authorization: string | null; cookie: string | null; forwarded: string | null }[] = [];
+const modelAsked: { path: string; search: string; method: string; body: unknown; authorization: string | null; cookie: string | null; marker: string | null; forwarded: string | null }[] = [];
 const remote = Bun.serve({
   port: 0,
-  fetch(request) {
+  async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/api/pane/models" || path === "/api/pane/model") {
+      modelAsked.push({ path, search: new URL(request.url).search, method: request.method, body: request.method === "POST" ? await request.json() : null,
+        authorization: request.headers.get("authorization"), cookie: request.headers.get("cookie"), marker: request.headers.get("x-herdr-machine"), forwarded: request.headers.get("x-forwarded-for") });
+      return Response.json({ ok: true }, { headers: { "set-cookie": "remote=1" } });
+    }
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/fs/file") return new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } });
@@ -31,6 +37,29 @@ const manager = {
 } as unknown as MachineManager;
 
 describe("PC proxy", () => {
+  it("allowlists the scoped model routes, not arbitrary OpenCode API forwarding", () => {
+    expect(MACHINE_PROXY_PATH.test("pane/models")).toBe(true);
+    expect(MACHINE_PROXY_PATH.test("pane/model")).toBe(true);
+    expect(MACHINE_PROXY_PATH.test("opencode/api/session")).toBe(false);
+    expect(MACHINE_PROXY_PATH.test("pane/model/config")).toBe(false);
+  });
+  it("routes model reads and changes with the bridge credential and marker, not browser credentials", async () => {
+    const before = modelAsked.length;
+    const model = { pane_id: "remote:p1", session_id: "ses_fixture", revision: "a".repeat(64), model: { provider_id: "fixture", model_id: "fast", variant: null } };
+    const headers = { authorization: "Bearer browser-secret", cookie: "herdr_web_device=device-secret", "x-forwarded-for": "203.0.113.9", "x-herdr-machine": "1", "content-type": "application/json" };
+    const base = "http://127.0.0.1/api/machines/pc1/pane";
+    for (const request of [new Request(`${base}/models?pane_id=remote%3Ap1`, { headers }), new Request(`${base}/model`, { method: "POST", headers, body: JSON.stringify(model) })]) {
+      const response = await handleMachineRequest(request, manager);
+      expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true });
+      expect(response.headers.get("set-cookie")).toBeNull(); expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(modelAsked.slice(before)).toEqual([
+      { path: "/api/pane/models", search: "?pane_id=remote%3Ap1", method: "GET", body: null, authorization: "Bearer remote-token", cookie: null, marker: null, forwarded: null },
+      { path: "/api/pane/model", search: "", method: "POST", body: model, authorization: "Bearer remote-token", cookie: null, marker: "1", forwarded: null },
+    ]);
+    const crossSite = await handleMachineRequest(new Request(`${base}/model`, { method: "POST", headers: { ...headers, origin: "https://evil.invalid" }, body: JSON.stringify(model) }), manager);
+    expect(crossSite.status).toBe(403); expect(modelAsked.length).toBe(before + 2);
+  });
   it("carries a conversation's ETag both ways and passes an unchanged answer on as a bodyless 304", async () => {
     const url = "http://127.0.0.1/api/machines/pc1/pane/conversation?pane_id=w1%3Ap1";
     const first = await handleMachineRequest(new Request(url), manager);
