@@ -26,6 +26,8 @@ import type {
   PaneDirection,
   PaneInfo,
   PanePlan,
+  PaneModels,
+  SwitchPaneModelRequest,
   PaneReadResult,
   PaneResized,
   RepoDiffFileList,
@@ -696,6 +698,14 @@ export async function removeWorktree(request: RemoveWorktreeRequest, machineId =
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */
 export async function fetchPaneCommands(paneId: string, machineId = "local"): Promise<SlashCommand[]> {
   return (await getJson<{ commands: SlashCommand[] }>(machinePath(machineId, `pane/commands?pane_id=${encodeURIComponent(paneId)}`))).commands;
+}
+
+export function fetchPaneModels(paneId: string, machineId = "local"): Promise<PaneModels> {
+  return getJson<PaneModels>(machinePath(machineId, `pane/models?pane_id=${encodeURIComponent(paneId)}`));
+}
+
+export async function switchPaneModel(request: SwitchPaneModelRequest, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/model"), "POST", request);
 }
 
 /** GET /api/pane/omo-tasks: the background tasks and workflows the pane's OmO session started, and that PC's clock. */

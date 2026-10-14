@@ -23,6 +23,7 @@ import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
+import { handleOpencodeModelRequest } from "./opencode-model.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import { ConversationMonitor } from "./conversation-monitor.ts";
 import { omoPanes } from "./omo.ts";
@@ -426,6 +427,8 @@ export function createServer(
     grokHome?: string;
     /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
     opencodeDb?: string;
+    /** OpenCode's authenticated API CLI; tests provide a fixture executable, never the user's service. */
+    opencodeBin?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
     devinDbPath?: string;
     /** Native Hermes store; pane process HERMES_HOME wins when this is unset. Tests use an isolated store. */
@@ -1805,6 +1808,10 @@ export function createServer(
       // what every browser of this server shares; a watching device reads it and cannot change it (above)
       if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
 
+      if (pathname === "/api/pane/models" || pathname === "/api/pane/model") {
+        bunServer.timeout(request, 80);
+        return handleOpencodeModelRequest(request, url, { binary: options.opencodeBin, serialize });
+      }
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
       if (pathname === "/api/voice" || pathname.startsWith("/api/voice/")) { bunServer.timeout(request, 120); return handleVoiceRequest(request, pathname, voice); }

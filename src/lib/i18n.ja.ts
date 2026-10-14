@@ -8,6 +8,17 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Choose a model": "モデルを選択",
+  "Choose reasoning effort": "推論の深さを選択",
+  "Choose a model before changing reasoning effort.": "推論の深さを変更する前にモデルを選択してください。",
+  "Search models…": "モデルを検索…",
+  "Loading models…": "モデルを読み込み中…",
+  "No models found": "モデルが見つかりません",
+  "Changing model…": "モデルを変更中…",
+  "Reload models": "モデルを再読み込み",
+  "Back": "戻る",
+  "Could not load models. Check the OpenCode connection in Terminal.": "モデルを読み込めませんでした。ターミナルでOpenCodeの接続を確認してください。",
+  "Model change not confirmed. Check Terminal before trying again.": "モデルの変更を確認できませんでした。再試行する前にターミナルを確認してください。",
   "Find in messages": "メッセージ内を検索",
   "Match case": "大文字と小文字を区別",
   "Search earlier messages": "以前のメッセージを検索",

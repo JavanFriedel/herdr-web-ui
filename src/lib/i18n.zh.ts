@@ -10,6 +10,17 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Choose a model": "选择模型",
+  "Choose reasoning effort": "选择推理强度",
+  "Choose a model before changing reasoning effort.": "请先选择模型，再更改推理强度。",
+  "Search models…": "搜索模型…",
+  "Loading models…": "正在加载模型…",
+  "No models found": "未找到模型",
+  "Changing model…": "正在更改模型…",
+  "Reload models": "重新加载模型",
+  "Back": "返回",
+  "Could not load models. Check the OpenCode connection in Terminal.": "无法加载模型。请在终端中检查 OpenCode 连接。",
+  "Model change not confirmed. Check Terminal before trying again.": "未能确认模型更改。请先检查终端，再重试。",
   "Find in messages": "在消息中查找",
   "Match case": "区分大小写",
   "Search earlier messages": "搜索更早的消息",

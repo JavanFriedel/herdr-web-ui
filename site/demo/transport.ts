@@ -14,6 +14,7 @@
  */
 import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
+import type { PaneModels, PaneModelSelection } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
@@ -61,6 +62,19 @@ const keyOfPane = new Map<string, string>(Object.entries(panesFixture as Record<
 const chats = new Map<string, { turns: ConversationTurn[]; metadata: { model: string; reasoning_effort: string } }>(
   Object.entries(CHATS).map(([key, chat]) => [key, structuredClone(chat)]),
 );
+const demoModels: PaneModels["models"] = [
+  { provider_id: "openai", model_id: "gpt-6.1", name: "GPT-6.1", variants: ["low", "medium", "high"] },
+  { provider_id: "anthropic", model_id: "claude-sonnet-5", name: "Sonnet 5", variants: ["low", "high"] },
+  { provider_id: "anthropic", model_id: "claude-opus-5-5", name: "Opus 5.5", variants: ["low", "high"] },
+];
+const demoModelSelections = new Map<string, PaneModelSelection>();
+const demoModelRevisions = new Map<string, number>();
+function demoPaneModels(paneId: string): PaneModels {
+  const metadata = chats.get(keyOfPane.get(paneId) ?? "")?.metadata;
+  const model = demoModels.find((item) => item.model_id === metadata?.model);
+  return { session_id: `ses_demo${paneId.replace(/[^a-z0-9]/gi, "")}`, revision: (demoModelRevisions.get(paneId) ?? 0).toString(16).padStart(64, "0"),
+    current: demoModelSelections.get(paneId) ?? (model ? { provider_id: model.provider_id, model_id: model.model_id, variant: metadata?.reasoning_effort || null } : null), models: demoModels };
+}
 // The fixtures' clocks say September 25th; the demo happens now. Every timestamp moves by the same
 // amount, so "Worked for" stays what it was and the newest turn ended three minutes ago.
 {
@@ -731,7 +745,31 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     answerPrompt(target, typeof body["option_index"] === "number" ? body["option_index"] : undefined);
     return json({ ok: true });
   }
-  if (path === "/api/pane/commands") return json(commandsFixture);
+  if (path === "/api/pane/commands") return json(paneOf(paneId)?.agent === "opencode" ? { commands: [
+    { name: "models", description: "Choose a model", source: "builtin" },
+    { name: "variants", description: "Choose a model variant", source: "builtin" },
+  ] } : commandsFixture);
+  if (path === "/api/pane/models") {
+    if (paneOf(paneId)?.agent !== "opencode") return error("model_unsupported", "Model controls require OpenCode 2", 400);
+    return json(demoPaneModels(paneId));
+  }
+  if (path === "/api/pane/model") {
+    const body = await bodyOf(init, input);
+    const target = String(body["pane_id"] ?? "");
+    if (paneOf(target)?.agent !== "opencode") return error("model_unsupported", "Model controls require OpenCode 2", 400);
+    const state = demoPaneModels(target);
+    if (body["session_id"] !== state.session_id || body["revision"] !== state.revision) return error("model_changed", "The session's model changed. Reopen the model selector.", 409);
+    const choice = body["model"] as Partial<PaneModelSelection> | undefined;
+    const model = demoModels.find((item) => item.provider_id === choice?.provider_id && item.model_id === choice?.model_id);
+    if (!model || choice?.variant !== null && (typeof choice?.variant !== "string" || !model.variants.includes(choice.variant))) return error("invalid_model", "Choose an available model and reasoning variant", 400);
+    const selected: PaneModelSelection = { provider_id: model.provider_id, model_id: model.model_id, variant: choice?.variant ?? null };
+    demoModelSelections.set(target, selected);
+    demoModelRevisions.set(target, (demoModelRevisions.get(target) ?? 0) + 1);
+    const chat = chats.get(keyOfPane.get(target) ?? "");
+    if (chat) chat.metadata = { model: selected.model_id, reasoning_effort: selected.variant ?? "" };
+    conversationChanged(target);
+    return json({ ok: true });
+  }
   if (path === "/api/pane/scroll") {
     const body = method === "POST" ? await bodyOf(init, input) : {};
     const target = method === "POST" ? String(body["pane_id"] ?? "") : paneId;

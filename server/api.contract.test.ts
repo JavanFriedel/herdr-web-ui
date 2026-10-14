@@ -22,6 +22,8 @@ import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts";
+import type { PaneModels } from "../shared/protocol.ts";
+import { opencodeModelFixture } from "./opencode-model.fake.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -44,6 +46,73 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
+
+describe("OpenCode model controls", () => {
+  it.skipIf(process.platform === "win32")("scopes changes to the reported session, validates live choices, and refuses stale selections and cross-site writes", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-model-api-contract-")));
+    const fixture = opencodeModelFixture(root);
+    const process = join(root, "opencode");
+    writeFileSync(process, "#!/bin/sh\nsleep 600\n"); chmodSync(process, 0o700);
+    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-model-controls" });
+    const paneId = created.root_pane.pane_id;
+    let app: ReturnType<typeof createServer> | undefined;
+    try {
+      await herdrRpc("pane.send_text", { pane_id: paneId, text: `${process}\n` });
+      for (const deadline = Date.now() + 10_000;;) {
+        if ((await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent === "opencode") break;
+        if (Date.now() > deadline) throw new Error("fixture OpenCode process did not start");
+        await Bun.sleep(50);
+      }
+      const report = (id: string) => herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:opencode", agent: "opencode", agent_session_id: id, session_start_source: "select" });
+      await report("ses_fixture");
+      app = createServer({ port: 0, stateDir: join(root, "state"), token: "fixture-token", opencodeBin: fixture.binary });
+      const base = `http://127.0.0.1:${app.port}`;
+      const headers = { authorization: "Bearer fixture-token", "content-type": "application/json", "x-herdr-machine": "1" };
+      const get = async (): Promise<PaneModels> => {
+        const response = await fetch(`${base}/api/pane/models?pane_id=${paneId}`, { headers });
+        expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("no-store");
+        return await response.json() as PaneModels;
+      };
+      const post = (state: PaneModels, patch: object = {}, extraHeaders: Record<string, string> = {}) => fetch(`${base}/api/pane/model`, {
+        method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify({ pane_id: paneId, session_id: state.session_id, revision: state.revision,
+          model: { provider_id: "fixture", model_id: "deep", variant: "high" }, ...patch }),
+      });
+      expect((await fetch(`${base}/api/pane/models?pane_id=${paneId}`)).status).toBe(401);
+      const state = await get();
+      expect(JSON.stringify(state)).not.toContain("fictional-api-secret");
+      expect((await fetch(`${base}/api/machines/local/pane/models?pane_id=${paneId}`, { headers })).status).toBe(200);
+      for (const request of [
+        post(state, {}, { origin: "https://evil.invalid" }),
+        post(state, {}, { "x-herdr-machine": "" }),
+      ]) expect((await request).status).toBe(403);
+      expect((await post(state, { model: { provider_id: "fixture", model_id: "deep", variant: "imaginary" } })).status).toBe(400);
+      expect((await post(state, { model: { provider_id: "other", model_id: "deep", variant: null } })).status).toBe(400);
+      expect(fixture.calls().filter((call) => call.method === "post")).toEqual([]);
+      const saved = await post(state);
+      expect(saved.status).toBe(200); expect(await saved.json()).toEqual({ ok: true });
+      expect(fixture.read().current).toEqual({ providerID: "fixture", id: "deep", variant: "high" });
+      expect((await post(state)).status).toBe(409);
+      expect(fixture.calls().filter((call) => call.method === "post")).toHaveLength(1);
+      const newState = await get();
+      const defaults = await post(newState, { model: { provider_id: "fixture", model_id: "deep", variant: null } });
+      expect(defaults.status).toBe(200); expect(fixture.read().current.variant).toBe("default");
+      const beforeRace = await get();
+      fixture.patch({ reads: 0, changeAfterReads: 2 });
+      expect((await post(beforeRace)).status).toBe(409);
+      expect(fixture.calls().filter((call) => call.method === "post")).toHaveLength(2);
+      fixture.patch({ changeAfterReads: null });
+      const beforeRetarget = await get();
+      await report("ses_other");
+      expect((await post(beforeRetarget)).status).toBe(409);
+      expect(fixture.calls().filter((call) => call.method === "post")).toHaveLength(2);
+      await report("ses_fixture");
+      const beforeFailure = await get(); fixture.patch({ postError: true });
+      const failed = await post(beforeFailure);
+      expect(failed.status).toBe(502); expect(await failed.text()).not.toContain("fictional-api-secret");
+      expect(fixture.calls().filter((call) => call.method === "post")).toHaveLength(3);
+    } finally { app?.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
+  }, 30_000);
+});
 
 describe("Grok conversation API", () => {
   it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {

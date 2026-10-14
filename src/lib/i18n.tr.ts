@@ -7,6 +7,17 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Choose a model": "Model seç",
+  "Choose reasoning effort": "Akıl yürütme düzeyini seç",
+  "Choose a model before changing reasoning effort.": "Akıl yürütme düzeyini değiştirmeden önce bir model seçin.",
+  "Search models…": "Modelleri ara…",
+  "Loading models…": "Modeller yükleniyor…",
+  "No models found": "Model bulunamadı",
+  "Changing model…": "Model değiştiriliyor…",
+  "Reload models": "Modelleri yeniden yükle",
+  "Back": "Geri",
+  "Could not load models. Check the OpenCode connection in Terminal.": "Modeller yüklenemedi. Terminalde OpenCode bağlantısını kontrol edin.",
+  "Model change not confirmed. Check Terminal before trying again.": "Model değişikliği doğrulanamadı. Yeniden denemeden önce Terminali kontrol edin.",
   "Find in messages": "Mesajlarda bul",
   "Match case": "Büyük/küçük harf eşleştir",
   "Search earlier messages": "Önceki mesajlarda ara",
