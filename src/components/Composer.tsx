@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, FileText, Folder, GitBranch, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -87,6 +87,8 @@ export interface ComposerProps {
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
   branch?: string | null;
+  /** the workspace is a linked worktree of its repository: the strip says so beside the folder */
+  worktree?: boolean;
   /** true: sent, clear the box; a string: keep the text and say why; a DraftRefusal: the same, and the
    * note offers to send again with `clearDraft`, which clears that draft from the terminal first; a
    * promise settles to any of them */
@@ -246,6 +248,7 @@ export function Composer({
   notices = null,
   cwd = null,
   branch = null,
+  worktree = false,
   onSend,
   onAbort,
   onUploadImage,
@@ -1263,9 +1266,10 @@ export function Composer({
       {strip !== null && (
         <div className="composer-strip">
           {strip.folder !== null && <span className="composer-strip-item composer-strip-folder" title={strip.path ?? undefined}>
-            <Folder aria-hidden="true" />
+            {worktree ? <FolderGit2 aria-hidden="true" /> : <Folder aria-hidden="true" />}
             <span className="visually-hidden">{t("Working folder")}: </span>
             <span className="composer-strip-text">{strip.folder}</span>
+            {worktree && <span className="composer-strip-kind">{t("Worktree")}</span>}
           </span>}
           {strip.branch !== null && <span className="composer-strip-item composer-strip-branch" title={strip.branch}>
             <GitBranch aria-hidden="true" />

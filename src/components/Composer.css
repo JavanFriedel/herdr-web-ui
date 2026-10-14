@@ -781,6 +781,14 @@
   height: var(--chip-h);
 }
 
+/* a linked worktree says what it is: the folder's name alone reads like any checkout's */
+.composer-strip-kind {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
 .composer-strip-branch {
   margin-inline-start: auto;
 }

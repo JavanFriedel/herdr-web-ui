@@ -1459,6 +1459,13 @@ try {
   workspaces.push(repoWorkspace.workspace.workspace_id);
   const repoRow = workspaceHeader(repoWorkspace.workspace.workspace_id);
   await repoRow.waitFor();
+  // herdr has not marked this workspace as a repository's yet: its row is where the first worktree starts
+  await repoRow.hover();
+  await repoRow.locator(".row-menu-toggle").click();
+  const unmarkedRepoMenu = page.getByRole("menu");
+  await unmarkedRepoMenu.getByRole("menuitem", { name: "New worktree", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await unmarkedRepoMenu.waitFor({ state: "detached" });
   const initialResponse = await fetch(`${origin}/api/worktree/create`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ workspace_id: repoWorkspace.workspace.workspace_id, branch: "browser/initial", label: "Existing checkout" }),
@@ -1979,14 +1986,18 @@ try {
 
   // Server-owned Send now drops the old suggestion itself, before a delayed prompt read returns.
   await selectPane(pendingPane);
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Chat");
+  await page.getByRole("switch", { name: "Send queued messages automatically", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await reportPending("working");
   await page.locator('.composer-status[data-status="working"]').waitFor();
   await pendingReady(pendingPane);
   await composer.fill("# queued before the suggestion");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await until(async () => await pendingRows.count() === 1, "suggestion test pending input accepted");
-  // A pane switch ends this item's automatic lease. Claude's ready-only suggestion
-  // can then appear beside the retained server-owned item without auto-dispatching it.
+  // Explicit hold keeps the suggestion beside a server-owned item without dispatching it.
+  // Navigation preserves its held state and the same PC connection's recovery actions.
   await selectPane(paneA); await selectPane(pendingPane);
   await page.locator('.pending-message[data-state="held"]').waitFor();
   await pendingReady(pendingPane);
@@ -2006,6 +2017,10 @@ try {
   await pendingRows.waitFor({ state: "hidden" });
   await page.unroute(`**/api/pane/prompt?pane_id=${encodeURIComponent(pendingPane)}`);
   await herdrRpc("pane.send_text", { pane_id: pendingPane, text: "\u0003" });
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Chat");
+  await page.getByRole("switch", { name: "Send queued messages automatically", exact: true }).check();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await workspaceClose(pendingWorkspace.workspace.workspace_id);
   workspaces.splice(workspaces.indexOf(pendingWorkspace.workspace.workspace_id), 1);
   await selectPane(paneA);

@@ -1869,7 +1869,8 @@ export function createServer(
           // not herdr kinds: offered where this server can run them (see shell-agent.ts)
           for (const kind of Object.keys(SHELL_AGENTS)) if (shellAgentExecutable(kind)) kinds.add(kind);
           const agents: AgentKind[] = [...kinds]
-            .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
+            // an agent's command is its kind; the pane's shell may carry another PATH, as for omo and gjc above
+            .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind, installed: Bun.which(kind, { PATH: process.env["PATH"] ?? "" }) !== null }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
           return jsonResponse({ agents });
         } catch (error) {
@@ -2089,6 +2090,11 @@ export function createServer(
             ...(agent ? await agentLaunch(opened.root_pane.pane_id, agent) : {}),
           });
         } catch (error) {
+          // git's own words for a branch that has no commit yet (a folder just `git init`ed): with no
+          // base named there is nothing to check out from, which the dialog says in its own words
+          if (creating && base === undefined && error instanceof HerdrError && error.code === "worktree_create_failed" && /invalid reference: HEAD\b/u.test(error.message)) {
+            return conflictResponse("repository_without_commits", "the repository has no commits yet");
+          }
           return errorResponse(error);
         }
       }

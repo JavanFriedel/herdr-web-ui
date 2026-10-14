@@ -1095,8 +1095,10 @@ describe("workspace and discovery endpoints", () => {
       expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
       for (const name of ["omo", "gjc"]) writeFileSync(join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
       const offered = await kinds();
-      expect(offered).toContainEqual({ kind: "omo", label: "OmO" });
-      expect(offered).toContainEqual({ kind: "gjc", label: "Gajae Code" });
+      expect(offered).toContainEqual({ kind: "omo", label: "OmO", installed: true });
+      expect(offered).toContainEqual({ kind: "gjc", label: "Gajae Code", installed: true });
+      // claude is always listed, and said to be missing where its command is not on PATH
+      expect(offered).toContainEqual({ kind: "claude", label: "Claude Code", installed: false });
     } finally {
       process.env["PATH"] = path;
       rmSync(bin, { recursive: true, force: true });
@@ -1161,6 +1163,26 @@ describe("workspace and discovery endpoints", () => {
     expect(close.status).toBe(200);
     expect(await close.json()).toEqual({ ok: true });
     workspaceId = null;
+  }, 20_000);
+
+  it("says a repository has no commits yet instead of passing git's refusal on", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "herdr-web-ui-worktree-empty-"));
+    expect(Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: repo, stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+    const parent = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-worktree-empty" });
+    const checkout = join(`${repo}-checkouts`, "feature");
+    try {
+      const create = await fetch(`${base()}/api/worktree/create`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspace_id: parent.workspace.workspace_id, branch: "herdr-web-ui-test-unborn", path: checkout }),
+      });
+      expect(create.status).toBe(409);
+      expect(((await create.json()) as ApiError).error.code).toBe("repository_without_commits");
+      expect(existsSync(checkout)).toBeFalse();
+    } finally {
+      await herdrRpc("workspace.close", { workspace_id: parent.workspace.workspace_id }).catch(() => undefined);
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(`${repo}-checkouts`, { recursive: true, force: true });
+    }
   }, 20_000);
 
   it("creates a worktree of an owned repository as a grouped workspace, lists it, and opens it again", async () => {

@@ -86,7 +86,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         404 from a server that sends no telemetry.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
- *         for the new-session dialog)
+ *         each with `installed`: whether its command is on this server's PATH; for the
+ *         new-session dialog)
  *  GET    /api/integrations              -> IntegrationsResponse (herdr's `integration.list`, in
  *         herdr's order; read only: nothing here installs or removes one, Settings shows the
  *         `herdr integration install` command instead)
@@ -213,7 +214,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         repository's open worktree workspaces with it; without it herdr refuses: workspace_group_close_required)
  *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path?, agent?: { kind, name?, args? } } -> WorktreeOpened
  *         (worktree.create: a git worktree of that workspace's repo, checked out under herdr's
- *         worktree directory unless `path` says where, and opened as a new workspace grouped with it)
+ *         worktree directory unless `path` says where, and opened as a new workspace grouped with it;
+ *         409 repository_without_commits when no base is named and the repository has no commit yet)
  *  GET    /api/worktree/list?workspace_id= -> WorktreeListing (worktree.list: the repo's checkouts)
  *  POST   /api/worktree/open   { workspace_id, path | branch, label? } -> WorktreeOpened
  *         (worktree.open: an existing checkout as a workspace; already_open names the one it has)
@@ -767,6 +769,8 @@ export interface RepoDiffFilePatch {
 export interface AgentKind {
   kind: string;
   label: string;
+  /** whether the server finds the agent's command (its kind) on its PATH; absent from an older bridge */
+  installed?: boolean;
 }
 
 /**
