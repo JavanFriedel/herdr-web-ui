@@ -576,6 +576,7 @@ describe("palette", () => {
     expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
+    expect(sanitizeSettings({ palette: "catppuccin-black" }).palette).toBe("catppuccin-black");
     expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
     expect(sanitizeSettings({ palette: "forest" }).palette).toBe("forest");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
@@ -595,6 +596,8 @@ describe("palette", () => {
     return css.slice(start, css.indexOf("}", start));
   };
   const paper = '[data-theme="light"]:is([data-palette="report"], [data-palette="charcoal"])';
+  const catppuccinDark = '[data-theme="dark"]:is([data-palette="catppuccin"], [data-palette="catppuccin-black"])';
+  const catppuccinLight = '[data-theme="light"]:is([data-palette="catppuccin"], [data-palette="catppuccin-black"])';
   // each case lists its blocks from the most specific to the base; the first one naming a token wins
   const cases = [
     { theme: "dark", palette: "amber", layers: [":root"] },
@@ -603,8 +606,10 @@ describe("palette", () => {
     { theme: "light", palette: "report", layers: [paper, '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "charcoal", layers: ['[data-theme="dark"][data-palette="charcoal"]', ":root"] },
     { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', paper, '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "catppuccin", layers: ['[data-theme="dark"][data-palette="catppuccin"]', ":root"] },
-    { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "catppuccin", layers: [catppuccinDark, ":root"] },
+    { theme: "light", palette: "catppuccin", layers: [catppuccinLight, '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "catppuccin-black", layers: ['[data-theme="dark"][data-palette="catppuccin-black"]', catppuccinDark, ":root"] },
+    { theme: "light", palette: "catppuccin-black", layers: [catppuccinLight, '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "lilac", layers: ['[data-theme="dark"][data-palette="lilac"]', ":root"] },
     { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "forest", layers: ['[data-theme="dark"][data-palette="forest"]', ":root"] },

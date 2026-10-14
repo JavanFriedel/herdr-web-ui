@@ -12,7 +12,7 @@ chrome color, amber: focus, the chosen lens, the terminal cursor and the user's 
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A dark report look, a neutral charcoal one, Catppuccin, lilac and forest are
+changing information architecture. A dark report look, a neutral charcoal one, Catppuccin, Catppuccin Black, lilac and forest are
 opt-in palettes (Settings → Appearance → Colors); amber stays the default and the look before settings load.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
@@ -75,8 +75,8 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 ### Opt-in palettes
 
-`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`, `forest`) is written as `data-palette`. The
-tables above are amber, the base blocks; the five opt-in palettes override them in
+`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `catppuccin-black`, `lilac`, `forest`) is written as `data-palette`. The
+tables above are amber, the base blocks; the six opt-in palettes override them in
 `[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
@@ -110,6 +110,12 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   `#d2d4dc`. Latte's accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened
   until it passes AA: Mauve `#712fc6` (primary hover is plain Latte Mauve `#8839ef`), Blue `#1750bf`,
   Red `#ac0c2f`, Green `#28651b`. It keeps amber's rounded corners.
+- **Catppuccin Black** is Catppuccin with every dark surface one Catppuccin layer darker, for a
+  pure black canvas under Mocha's pastels. It shares Catppuccin's blocks and overrides only the
+  surfaces: canvas and terminal `#000000` (from Base), chrome and elevated surfaces Crust `#11111b`
+  (from Mantle), hover Base `#1e1e2e` (from Surface0), input `#000000` (from Crust), scrim black.
+  Borders, text, accents and states stay Mocha's; the selection is Overlay2 at 25% over black,
+  `#25262d`. Light is Catppuccin's Latte, unchanged.
 - **Lilac** is one quiet lavender, flat on every surface (no gradient, no translucency). Light is
   the look it was drawn for: a pale lavender canvas `--bg` `#f0eefc` under paler chrome `--bg-panel`
   `#f6f5fe` (elevated `#fbfaff`, hover `#e8e5f8`, input `#fdfcff`), indigo ink (text `#2b2d4d` /
@@ -294,7 +300,7 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `lilac` or `forest`; default `amber`.
+- `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `catppuccin-black`, `lilac` or `forest`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - `contrast`: a whole step from `-2` to `+3`; default `0`, the palette as drawn (Contrast, above).
 - `sidebarRows`: `one` or `two`; default `two`.
