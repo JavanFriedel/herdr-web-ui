@@ -7,7 +7,7 @@
  * the attribute); `[data-density="compact"]` overrides the type scale and row
  * heights. The base blocks are the amber palette, the default and the look before
  * settings load; `[data-palette]` blocks override them for the opt-in report,
- * charcoal, catppuccin, lilac and forest palettes. `[data-contrast]` (after them) re-mixes the
+ * charcoal, catppuccin, catppuccin-black, lilac and forest palettes. `[data-contrast]` (after them) re-mixes the
  * text and border tokens under <html> by the Contrast step. xterm cannot read CSS custom
  * properties, so the --term-* group is mirrored in settings.ts `terminalTheme()`.
  * Component-scoped rules live beside their component (Sidebar.css,
@@ -433,7 +433,7 @@
    Red, keeps input readable on a hovered row. Latte's accents sit under 4.5:1 on its own
    surfaces, so the style guide's "legibility first" applies: each keeps its hue and is
    darkened until it passes AA (Mauve 17%, Red 18%, Blue 22%, Green 37%). */
-[data-theme="dark"][data-palette="catppuccin"] {
+[data-theme="dark"]:is([data-palette="catppuccin"], [data-palette="catppuccin-black"]) {
   --notice: #f9e2af;
   /* overlay2: --text-dim (subtext1) is nearly --text here */
   --line-number: #9399b2;
@@ -479,7 +479,23 @@
   --syntax-function: #89b4fa;
 }
 
-[data-theme="light"][data-palette="catppuccin"] {
+/* Catppuccin Black: Mocha with every surface one Catppuccin layer darker, the canvas pure
+   black. Content (chat canvas, terminal) moves from Base to black, the chrome and popovers
+   from Mantle to Crust, hover from Surface0 to Base and inputs from Crust to black; borders,
+   text, accents and states keep Mocha's values. The selection is Overlay2 at 25% over black.
+   Light is plain Latte, the block above. */
+[data-theme="dark"][data-palette="catppuccin-black"] {
+  --bg: #000000;
+  --bg-panel: #11111b;
+  --bg-elevated: #11111b;
+  --bg-hover: #1e1e2e;
+  --bg-input: #000000;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --term-bg: #000000;
+  --term-selection: #25262d;
+}
+
+[data-theme="light"]:is([data-palette="catppuccin"], [data-palette="catppuccin-black"]) {
   --notice: #8a5710;
   /* subtext0, darkened to 4.5:1 on --bg */
   --line-number: #64677d;
