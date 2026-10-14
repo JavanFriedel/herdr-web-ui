@@ -31,6 +31,7 @@ import { DEFAULT_PORT } from "../shared/protocol.ts";
 import type { RemoteAccess } from "../shared/protocol.ts";
 import { canBind, FALLBACK_PORTS, freePort, savedPort } from "./plugin-port.ts";
 import { activePluginScript } from "./plugin-runtime.ts";
+import { rotateServerLog } from "./plugin-log.ts";
 import { parseTailscale, parseTailscaleIp, parseTailscaleOwner, readTailscale, tailscaleBinary } from "../server/tailscale.ts";
 import { windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
 
@@ -276,6 +277,7 @@ async function start(): Promise<number> {
       renameSync(`${PORT_FILE}.tmp`, PORT_FILE);
     }
   }
+  rotateServerLog(LOG_FILE);
   const log = openSync(LOG_FILE, "a");
   const logged = statSync(LOG_FILE).size;
   const child = spawn(process.execPath, [join(ROOT, "server", "managed.ts")], {
