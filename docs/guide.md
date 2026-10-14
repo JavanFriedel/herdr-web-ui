@@ -454,6 +454,7 @@ Observe connections cannot take a pane, and a displaced bridge never takes it ba
 | `HERDR_WEB_HERDR_BIN` | `herdr` | herdr executable used for terminal attach |
 | `HERDR_WEB_APP_NAME` | unset (`herdr`) | The name the installed app has on a phone or computer, for example the PC's name. Each PC installs as an app of its own, and without it they are all called `herdr`. An app already installed takes the new name when the browser next updates it, usually within a day or two, without a reinstall. Keep it short: a home screen cuts a long label |
 | `HERDR_WEB_PASTE_DIR` | `<pane cwd>/.herdr-web-ui` | Where pasted and attached files are saved: an absolute path or `~/…`. Set it to keep them out of your projects; an agent may then ask before reading one. It covers the panes of this server's PC; a remote PC keeps the default |
+| `HERDR_WEB_SLOW_REQUEST_MS` | `3000` | A request that takes at least this long is written to `requests.log` even when it succeeds (see [Where are the logs?](#faq)). `0` writes failed requests only |
 | `CODEX_HOME` | `~/.codex` | Where Codex sessions are read |
 
 ## Updates
@@ -576,6 +577,25 @@ A React client talks to a Bun HTTP/WebSocket server.
 herdr owns the processes and the scrollback.
 
 ## FAQ
+
+<details>
+<summary><b>Where are the logs?</b></summary>
+
+- **`requests.log`** in `logs/` under `HERDR_WEB_STATE_DIR` (default `~/.config/herdr-web-ui/logs`):
+  one JSON line for every request answered with 500 or more, or slower than
+  `HERDR_WEB_SLOW_REQUEST_MS` (3 s by default): the time, status, path, pane, duration and the error
+  code and message the app showed. A `502` with `timeout` or `connect_failed` is a herdr call that
+  did not answer in time or could not be reached, and its message names the call. A 502 that is not
+  in this log came from something in front of the app, such as `tailscale serve` while the server
+  was restarting. The file is rotated at 1 MiB and three older copies are kept
+  (`requests.log.1` to `.3`).
+- **`server.log`**, the server's own output (starts, crashes, push failures): in the plugin's state
+  directory (`~/.local/state/herdr/plugins/devswha.herdr-web-ui` for the herdr plugin). A start sets
+  it aside as `server.log.1` once it passes 1 MiB.
+- **`herdr plugin log list`** shows the output of the plugin's start and stop actions.
+
+`tail -f ~/.config/herdr-web-ui/logs/requests.log` follows the log; `jq` reads it a line at a time.
+</details>
 
 <details>
 <summary><b>Does it replace herdr's own TUI?</b></summary>

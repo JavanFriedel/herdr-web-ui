@@ -87,6 +87,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
+import { type RequestLog, requestLogFromEnv } from "./request-log.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
@@ -457,6 +458,8 @@ export function createServer(
     alertTiming?: Partial<AlertTiming>;
     /** accept plain-http loopback push endpoints (server/push.ts); only tests delivering to push.fake.ts set it */
     pushLoopbackHttp?: boolean;
+    /** failed and slow requests, rotated by size (server/request-log.ts); unset: `<stateDir>/logs`, null: none */
+    requestLog?: RequestLog | null;
     /** how long a turn's end is held for its background work (server/background-wait.ts); tests shorten it */
     backgroundWait?: { grace: number; limit: number };
     /** Clock for background holds and alert turn durations; tests advance it explicitly. */
@@ -1659,12 +1662,20 @@ export function createServer(
     };
   });
 
+  const requestLog = options.requestLog === undefined ? requestLogFromEnv(options.stateDir ?? defaultStateDir()) : options.requestLog;
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
     port: options.port ?? (envPort ? Number(envPort) : DEFAULT_PORT),
     hostname,
 
     async fetch(request, bunServer) {
+      const started = performance.now();
+      const response = await answer();
+      // an upgraded WebSocket has no response; a log that fails never fails the request
+      if (response !== undefined && requestLog) void requestLog.observe(request, response, performance.now() - started).catch(() => undefined);
+      return response;
+
+      async function answer(): Promise<Response | undefined> {
       const startup = portalStartupResult ?? await portalStartup;
       if (!startup.ok) return compressResponse(request, errorResponse(startup.error));
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
@@ -2680,6 +2691,7 @@ export function createServer(
       // static client - public even when the API is gated, so the login UI can load
       return serveStatic(pathname, request.headers.get("accept-encoding"));
       })());
+      }
     },
 
     websocket: {
