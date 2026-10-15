@@ -31,6 +31,7 @@ import { DEFAULT_PORT } from "../shared/protocol.ts";
 import type { RemoteAccess } from "../shared/protocol.ts";
 import { canBind, FALLBACK_PORTS, freePort, savedPort } from "./plugin-port.ts";
 import { activePluginScript } from "./plugin-runtime.ts";
+import { notificationPicker } from "./notification-picker.ts";
 import { rotateServerLog } from "./plugin-log.ts";
 import { parseTailscale, parseTailscaleIp, parseTailscaleOwner, readTailscale, tailscaleBinary } from "../server/tailscale.ts";
 import { windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
@@ -572,6 +573,15 @@ async function phoneSetup(): Promise<number> {
   return code;
 }
 
+async function notifications(): Promise<number> {
+  const active = activePluginScript(ROOT, port, APP_STATE_DIR);
+  if (active !== join(resolve(ROOT), "scripts", "plugin.ts") && resolve(active) !== resolve(import.meta.filename)) {
+    const child = Bun.spawn([process.execPath, active, "notifications"], { cwd: ROOT, windowsHide: true, env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    return await child.exited;
+  }
+  return notificationPicker({ origin, token: env["HERDR_WEB_TOKEN"] });
+}
+
 /** Reporting "down" is not an action failure: herdr logs a nonzero exit as failed. */
 async function status(): Promise<number> {
   const pid = recordedPid();
@@ -589,7 +599,8 @@ else if (command === "status") process.exit(await status());
 else if (command === "pair") process.exit(await pair());
 else if (command === "phone") process.exit(await phone());
 else if (command === "phone-setup") process.exit(await phoneSetup());
+else if (command === "notifications") process.exit(await notifications());
 else {
-  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone|phone-setup>\n`);
+  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone|phone-setup|notifications>\n`);
   process.exit(2);
 }

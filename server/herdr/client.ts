@@ -203,6 +203,12 @@ export async function sessionSnapshot(socketPath?: string, timeoutMs?: number): 
   return result.snapshot;
 }
 
+/** Reloads the server and its attached clients without restarting pane processes. */
+export async function serverReloadConfig(socketPath?: string): Promise<void> {
+  const result = await herdrRpc("server.reload_config", {}, socketPath);
+  if (result.type !== "config_reload" || result.status !== "applied") throw new HerdrError("config_reload_failed", "Herdr could not fully reload its configuration; notification mode was not changed.");
+}
+
 /** One pane's metadata; an unknown pane rejects with herdr's `pane_not_found`. */
 export async function paneGet(paneId: string, socketPath?: string): Promise<PaneInfo> {
   const result = await herdrRpc<{ pane: PaneInfo }>("pane.get", { pane_id: paneId }, socketPath);

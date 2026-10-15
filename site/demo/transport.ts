@@ -638,6 +638,9 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   // the demo sends no counts: a server without telemetry answers 404, and the app shows neither its notice nor its switch
   if (path === "/api/telemetry") return json({ error: { code: "not_found", message: "This server sends no telemetry" } }, 404, { "cache-control": "no-store" });
   if (path === "/api/herdr/update") return json({ supported: false, phase: "idle", server_version: null, binary_version: null, stale: false, output: null, finished_at: null }, 200, { "cache-control": "no-store" });
+  if (path === "/api/notifications/mode") return method === "GET"
+    ? json({ supported: false, mode: null, changing: false }, 200, { "cache-control": "no-store" })
+    : error("notification_modes_unavailable", "The demo changes no desktop notification settings.", 409);
   // the demo opens no public address: the Portal section stays hidden
   if (path === "/api/portal") return json({ supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null } satisfies PortalStatus, 200, { "cache-control": "no-store" });
   if (path === "/api/portal/start" || path === "/api/portal/stop") return error("portal_unsupported", "The demo opens no public address.", 409);

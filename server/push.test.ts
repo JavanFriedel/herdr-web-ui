@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AlertPrefs } from "../shared/notify-policy.ts";
-import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentStatus, HerdrPane, NotificationMode, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
 import { createPushService, handlePushRequest, parseSubscription, type PushService } from "./push.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
@@ -110,6 +110,56 @@ describe("push state", () => {
 });
 
 describe("push delivery", () => {
+  it("mobile bypasses desk presence and delivery holds while keeping device preferences", async () => {
+    let checks = 0;
+    const push = subscribed({ mode: () => "mobile", timing: { short: 180_000, long: 180_000, longTurn: 0 }, atThisPc: async () => { checks++; return true; } });
+    push.seed([pane("mobile", "working", "Mobile fixture")]);
+    await push.onStatus("mobile", "blocked");
+    await push.onStatus("mobile", "done");
+    expect(fake.received).toHaveLength(2);
+    expect(checks).toBe(0);
+    push.subscribe(fake.subscription, { input: false, done: "off" });
+    await push.onStatus("mobile", "working");
+    await push.onStatus("mobile", "blocked");
+    await push.onStatus("mobile", "done");
+    expect(fake.received).toHaveLength(2);
+  });
+
+  it("mobile still holds pushes while the app is visible and focused", async () => {
+    const push = subscribed({ mode: () => "mobile", inUse: () => true });
+    push.seed([pane("mobile", "working", "Mobile fixture")]);
+    await push.onStatus("mobile", "blocked");
+    await push.onEnded("mobile");
+    expect(fake.received).toHaveLength(0);
+  });
+
+  it("desktop holds phone pushes without deleting subscriptions or replaying old events", async () => {
+    let mode: NotificationMode = "desktop";
+    const push = subscribed({ mode: () => mode });
+    push.seed([pane("desktop", "working", "Desktop fixture")]);
+    await push.onStatus("desktop", "done");
+    await push.onEnded("desktop");
+    expect(fake.received).toHaveLength(0);
+    mode = "mobile";
+    await push.onStatus("desktop", "done");
+    expect(fake.received).toHaveLength(0);
+    await push.onStatus("desktop", "working");
+    await push.onStatus("desktop", "done");
+    expect(fake.received).toHaveLength(1);
+  });
+
+  it("cancels delayed alerts when the notification destination changes", async () => {
+    let mode: NotificationMode | null = null;
+    const push = createPushService({ stateDir, loopbackHttp: true, mode: () => mode, timing: { short: 180_000 } });
+    push.subscribe(fake.subscription);
+    push.seed([pane("waiting", "working", "Waiting fixture")]);
+    await push.onStatus("waiting", "blocked");
+    mode = "mobile";
+    push.cancelWaiting();
+    await push.settled();
+    expect(fake.received).toHaveLength(0);
+  });
+
   it("delivers the real finish after a late unknown snapshot arrives during a new Codex turn", async () => {
     const push = subscribed();
     const completions = new CompletionTracker();

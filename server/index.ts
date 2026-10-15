@@ -73,6 +73,7 @@ import {
   pluginLogList,
   type PluginInvocationContext,
   sessionSnapshot,
+  serverReloadConfig,
   tabClose,
   tabCreate,
   tabRename,
@@ -88,6 +89,8 @@ import {
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { type PresenceCheck, presenceFromEnv } from "./presence.ts";
+import { DesktopNotifications, herdrConfigPath } from "./desktop-notifications.ts";
+import { handleNotificationModeRequest, NotificationModes } from "./notification-mode.ts";
 import { type RequestLog, requestLogFromEnv } from "./request-log.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
@@ -461,6 +464,8 @@ export function createServer(
     pushLoopbackHttp?: boolean;
     /** whether the person is at this PC, holding alerts (server/presence.ts); unset: `HERDR_WEB_PRESENCE_CMD`, null: never asked */
     presence?: PresenceCheck | null;
+    /** Only the real entrypoint manages desktop config; tests supply an isolated controller. */
+    notificationModes?: NotificationModes;
     /** failed and slow requests, rotated by size (server/request-log.ts); unset: `<stateDir>/logs`, null: none */
     requestLog?: RequestLog | null;
     /** how long a turn's end is held for its background work (server/background-wait.ts); tests shorten it */
@@ -1024,11 +1029,13 @@ export function createServer(
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     inUse: () => present.size > 0,
     atThisPc: (options.presence === undefined ? presenceFromEnv() : options.presence) ?? undefined,
+    mode: options.notificationModes ? () => options.notificationModes!.deliveryMode() : undefined,
     lookupTitle: async (paneId) => {
       return paneTitle(await paneGet(paneId));
     },
   });
 
+  const stopNotificationModes = options.notificationModes?.onChange(() => push.cancelWaiting());
   /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
   /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
@@ -1813,6 +1820,7 @@ export function createServer(
         return handleUpdateRequest(request, pathname, options.updates);
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
+      if (pathname === "/api/notifications/mode") return handleNotificationModeRequest(request, options.notificationModes);
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
         return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
       }
@@ -3363,6 +3371,7 @@ export function createServer(
       conversations.stop();
       clearInterval(outputTimer);
       collector.stop();
+      stopNotificationModes?.();
       omo.stop();
       claudeAgents.stop();
       clearInterval(waitTimer);
@@ -3382,7 +3391,8 @@ if (import.meta.main) {
   const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
   const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
   const portal = new PortalService({ stateDir: defaultStateDir() });
-  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
+  const notificationModes = new NotificationModes(defaultStateDir(), new DesktopNotifications(herdrConfigPath(), () => serverReloadConfig()));
+  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, notificationModes, registerBridge: true, herdrProfiles: readHerdrProfiles });
   telemetry.start();
   let stopping = false;
   const shutdown = () => {

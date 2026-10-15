@@ -289,6 +289,37 @@ idle time on macOS,
 `[ "$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')" -lt 180 ]`,
 or on Linux with X11, `[ "$(xprintidle)" -lt 180000 ]`.
 
+### Switch between desktop and phone alerts
+
+The Herdr plugin's **Notifications: Desktop / Mobile** action opens a small popup:
+
+- **Desktop** stops this bridge's agent pushes without unsubscribing your phone and restores
+  your saved Herdr toast and sound settings.
+- **Mobile** mutes Herdr's desktop toast and sound and sends new, eligible pushes without the
+  usual delivery delay or desk-presence command. A visible, focused window of the web app
+  still holds pushes. Each device's Needs input and Finished choices still apply.
+
+Use the arrows and Enter, or click a choice. Escape closes without changing the mode. Existing
+alerts are not replayed when the destination changes. The mode survives bridge restarts;
+until the first explicit choice, the existing notification behavior is unchanged.
+
+For a shortcut inside Herdr, add this to its `config.toml`, then use **Reload config**:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+m"
+type = "plugin_action"
+command = "devswha.herdr-web-ui.notifications"
+description = "notifications: Desktop / Mobile"
+```
+
+On Windows use `devswha.herdr-web-ui.notifications-windows` as the command instead.
+The plugin must be linked again after its manifest changes. The popup only confirms a mode
+after the bridge saves it and Herdr reloads its config; a stopped or older bridge changes
+nothing. No Herdr binary patch or server restart is required. Switching Mobile edits only
+`ui.toast.delivery` and `ui.sound.enabled`; unrelated config changes are preserved, and an
+edit to those notification settings while Mobile is active is reported rather than overwritten.
+
 On a phone:
 - Agent panes open in the chat.
 - The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).

@@ -11,6 +11,9 @@ import { PortalService } from "./portal.ts";
 import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
+import { DesktopNotifications } from "./desktop-notifications.ts";
+import { NotificationModes } from "./notification-mode.ts";
+import { DeviceStore } from "./devices.ts";
 import { Telemetry } from "./telemetry.ts";
 import { NOTICE_VERSION, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
 import { DEFAULT_SETTINGS, telemetrySettingsSnapshot } from "../src/lib/settings.ts";
@@ -44,6 +47,62 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
+
+describe("plugin notification mode API", () => {
+  it("offers no desktop controller on an embedding that did not provide one", async () => {
+    const response = await fetch(`${base()}/api/notifications/mode`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ supported: false, mode: null, changing: false });
+  });
+
+  it("requires authentication and a marked same-origin change, and preserves isolated desktop settings", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-notification-api-"));
+    const config = join(root, "config.toml");
+    const original = '[ui.toast]\ndelivery = "herdr"\n[ui.sound]\nenabled = true\n';
+    writeFileSync(config, original);
+    let reloads = 0;
+    const modes = new NotificationModes(root, new DesktopNotifications(config, async () => { reloads++; }));
+    const app = createServer({ port: 0, stateDir: join(root, "app"), token: "fixture-notification-token", notificationModes: modes });
+    const url = `http://localhost:${app.port}/api/notifications/mode`;
+    const headers = { authorization: "Bearer fixture-notification-token", "content-type": "application/json", "x-herdr-machine": "1" };
+    try {
+      expect((await fetch(url, { method: "POST", headers: { "x-herdr-machine": "1" }, body: '{"mode":"mobile"}' })).status).toBe(401);
+      expect((await fetch(url, { method: "POST", headers: { authorization: headers.authorization }, body: '{"mode":"mobile"}' })).status).toBe(403);
+      expect((await fetch(url, { method: "POST", headers: { ...headers, origin: "http://other.example" }, body: '{"mode":"mobile"}' })).status).toBe(403);
+      expect(readFileSync(config, "utf8")).toBe(original);
+      const mobile = await fetch(url, { method: "POST", headers, body: '{"mode":"mobile"}' });
+      expect(mobile.status).toBe(200);
+      expect(await mobile.json()).toEqual({ supported: true, mode: "mobile", changing: false });
+      expect(Bun.TOML.parse(readFileSync(config, "utf8"))).toMatchObject({ ui: { toast: { delivery: "off" }, sound: { enabled: false } } });
+      expect((await fetch(url, { method: "POST", headers, body: '{"mode":"desktop"}' })).status).toBe(200);
+      expect(readFileSync(config, "utf8")).toBe(original);
+      expect(reloads).toBe(4);
+    } finally { app.stop(); rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("lets a watching device read the mode but never change desktop settings", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-notification-watch-"));
+    const config = join(root, "config.toml");
+    const original = '[ui.toast]\ndelivery = "herdr"\n';
+    writeFileSync(config, original);
+    const stateDir = join(root, "app");
+    const devices = new DeviceStore(stateDir);
+    const paired = devices.pair(devices.startPairing().code, "Fixture watcher", "watch")!;
+    devices.match(paired.token);
+    const modes = new NotificationModes(root, new DesktopNotifications(config, async () => {}));
+    const app = createServer({ port: 0, stateDir, token: "fixture-owner", notificationModes: modes });
+    const url = `http://localhost:${app.port}/api/notifications/mode`;
+    const headers = { cookie: `herdr_web_device=${paired.token}`, "x-herdr-machine": "1" };
+    try {
+      expect((await fetch(url, { headers })).status).toBe(200);
+      const response = await fetch(url, { method: "POST", headers, body: '{"mode":"mobile"}' });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: { code: "read_only" } });
+      expect(readFileSync(config, "utf8")).toBe(original);
+      expect(modes.deliveryMode()).toBeNull();
+    } finally { app.stop(); rmSync(root, { recursive: true, force: true }); }
+  });
+});
 
 describe("Grok conversation API", () => {
   it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {

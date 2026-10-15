@@ -425,6 +425,20 @@ export interface PushKey {
   readonly public_key: string;
 }
 
+/**
+ * GET /api/notifications/mode -> NotificationModeStatus.
+ * POST /api/notifications/mode { mode } -> NotificationModeStatus.
+ * POST requires full access, same origin, and `x-herdr-machine: 1`.
+ * This bridge's Herdr plugin coordinates desktop config and phone push delivery;
+ * `mode: null` keeps existing behavior until the first explicit choice.
+ */
+export type NotificationMode = "desktop" | "mobile";
+export interface NotificationModeStatus {
+  supported: boolean;
+  mode: NotificationMode | null;
+  changing: boolean;
+}
+
 /** One turn of a structured agent conversation (the chat lens source). */
 export interface ConversationTurn {
   role: "user" | "assistant";

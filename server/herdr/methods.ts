@@ -12,6 +12,7 @@ import type { AgentInfo, AgentTarget, PaneProcessInfo, PaneProcessInfoParams, Pa
  * (scripts/generate-protocol-types.ts ROOTS).
  */
 export interface HerdrMethods {
+  "server.reload_config": { params: Record<string, never>; result: { type: "config_reload"; status: "applied" | "partial" | "failed"; diagnostics: string[] } };
   /** `pane_id`, never `target`: given `target`, herdr silently answers for the focused pane. */
   "pane.process_info": { params: PaneProcessInfoParams & { pane_id: string }; result: { type?: "pane_process_info"; process_info?: PaneProcessInfo } };
   "agent.get": { params: AgentTarget; result: { type?: "agent_info"; agent: AgentInfo } };

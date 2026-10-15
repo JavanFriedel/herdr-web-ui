@@ -36,7 +36,7 @@ import { dirname, join } from "node:path";
 import webpush from "web-push";
 
 import { paneStorageId } from "../shared/machines.ts";
-import type { AgentStatus, HerdrPane, PushPayload } from "../shared/protocol.ts";
+import type { AgentStatus, HerdrPane, NotificationMode, PushPayload } from "../shared/protocol.ts";
 import {
   type AlertPrefs,
   DEFAULT_ALERTS,
@@ -102,6 +102,8 @@ export interface PushService {
   onEnded(paneId: string, machineId?: string): Promise<void>;
   /** Resolves once every alert scheduled so far went out or was called off (tests wait). */
   settled(): Promise<void>;
+  /** Mode switches call off old alerts instead of replaying them at the new destination. */
+  cancelWaiting(): void;
 }
 
 export interface PushServiceOptions {
@@ -116,6 +118,8 @@ export interface PushServiceOptions {
   inUse?: () => boolean;
   /** whether the person is at this PC by their own command (server/presence.ts): then, as with `inUse`, no alert goes out */
   atThisPc?: () => Promise<boolean>;
+  /** Absent/null keeps existing delivery; desktop holds pushes, mobile sends without presence/delay. */
+  mode?: () => NotificationMode | null;
   /** accept plain-http loopback endpoints: only for the tests' fake push service (push.fake.ts) */
   loopbackHttp?: boolean;
 }
@@ -423,18 +427,22 @@ export function createPushService(options: PushServiceOptions): PushService {
         turnStart.delete(key);
       }
       if (!shouldNotifyStatus(previous, status)) return;
+      const mode = options.mode?.() ?? null;
+      if (mode === "desktop") return;
       const groups = new Map<number, PushSubscriptionRecord[]>();
       for (const subscription of store().values()) {
         const delay = delayFor(subscription.alerts ?? DEFAULT_ALERTS, status, worked);
-        if (delay !== null) groups.set(delay, [...(groups.get(delay) ?? []), subscription]);
+        const wait = mode === "mobile" ? 0 : delay;
+        if (delay !== null && wait !== null) groups.set(wait, [...(groups.get(wait) ?? []), subscription]);
       }
       if (groups.size === 0) return;
       schedule(key, groups, async (to) => {
-        if (options.inUse?.()) return;
+        if (options.inUse?.() || (options.mode?.() ?? null) !== mode) return;
         const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
         // the title can wait for herdr: a window that came into use meanwhile still holds the alert
-        if (options.inUse?.()) return;
-        if (await options.atThisPc?.()) return;
+        if (options.inUse?.() || (options.mode?.() ?? null) !== mode) return;
+        if (mode !== "mobile" && await options.atThisPc?.()) return;
+        if (options.inUse?.() || (options.mode?.() ?? null) !== mode) return;
         // a device that dropped out meanwhile is not written to
         const live = to.flatMap((subscription) => {
           const current = store().get(subscription.endpoint);
@@ -450,13 +458,20 @@ export function createPushService(options: PushServiceOptions): PushService {
       turnStart.delete(key);
       // an ended terminal is a finish of its own: a device that wants none hears none
       const to = [...store().values()].filter((subscription) => (subscription.alerts ?? DEFAULT_ALERTS).done !== "off");
-      if (to.length === 0 || options.inUse?.() || await options.atThisPc?.()) return;
+      const mode = options.mode?.() ?? null;
+      if (mode === "desktop" || to.length === 0 || options.inUse?.()) return;
+      if (mode !== "mobile" && await options.atThisPc?.()) return;
+      if (options.inUse?.() || (options.mode?.() ?? null) !== mode) return;
       // the pane may already be gone from herdr: the seeded title is what is left
       await broadcast({ ...endedMessage(paneId, titles.get(key) ?? paneId), ...where(key, machineId), tag: paneNotificationTag(paneId, machineId) }, "normal", to);
     },
 
     async settled() {
       while (inFlight.size > 0) await Promise.all([...inFlight]);
+    },
+
+    cancelWaiting() {
+      for (const key of [...waiting.keys()]) callOff(key);
     },
   };
 }
