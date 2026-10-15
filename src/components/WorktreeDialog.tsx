@@ -13,6 +13,7 @@ import { GitBranch, X } from "lucide-react";
 import "./WorktreeDialog.css";
 
 import type { AgentKind, WorkspaceInfo, WorktreeEntry, WorktreeOpened } from "../../shared/protocol.ts";
+import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
 import { ApiError } from "../lib/api.ts";
 import { AgentPicker, rememberAgent, rememberedAgent } from "./AgentPicker.tsx";
 import { useMachineApi } from "../lib/machineContext.tsx";
@@ -182,7 +183,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
               </label>
               <label className="field">
                 <span className="field-label">{t("Name")}</span>
-                <input className="input" value={label} disabled={locked} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
+                <input className="input" value={label} maxLength={MAX_LABEL_CHARS} disabled={locked} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
                 <span className="field-hint">{t("Workspace label; follows the branch until you change it")}</span>
               </label>
               <div className="field">

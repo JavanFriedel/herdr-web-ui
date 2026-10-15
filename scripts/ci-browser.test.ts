@@ -69,10 +69,14 @@ describe("browser lane", () => {
   it("summarizes every script and exits zero on success without enabling local evidence", async () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
-    expect(rows(text)).toHaveLength(52);
+    expect(rows(text)).toHaveLength(58);
     expect(rows(text).filter((row) => row.script === "scripts/opencode-model-demo-regression.ts")).toHaveLength(1);
+    expect(rows(text).map((row) => row.script)).toContain("scripts/gjc-status-browser-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/pane-input-focus-demo-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/shortcut-exact-modifiers-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/chat-virtual-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pwa-update-browser-qa.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/omo-chat-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/portal-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/agy-chat-browser-qa.ts");
     expect(rows(text).filter((row) => row.script === "scripts/ui-contexts-regression.ts")).toHaveLength(1);

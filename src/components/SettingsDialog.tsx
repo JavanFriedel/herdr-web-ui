@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowLeft, Bell, Check, ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Gauge, Info, Keyboard, MessageSquare, Mic, Monitor, Palette, Plug, Plus, RotateCcw, Search, Smartphone, SquareTerminal, Star, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Bell, Check, ChevronDown, ChevronRight, ChevronUp, Eye, EyeOff, Gauge, Info, Keyboard, MessageSquare, Mic, Monitor, Palette, Plug, Plus, Search, Smartphone, SquareTerminal, Star, X, type LucideIcon } from "lucide-react";
 
 import "./SettingsDialog.css";
 
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
-import { SHORTCUTS, formatKeys, isMacPlatform, modKeyLabel, setShortcutRecording, shortcutDisplayKeys, shortcutKeys, shortcutConflict, type ShortcutId } from "../lib/shortcuts.ts";
-import { SHORTCUT_KEYS, recordShortcut, shortcutMatchesQuery } from "../lib/shortcutRecorder.ts";
-import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
-import { ATTACH_LIMIT_MAX, ATTACH_LIMIT_MIN, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, TERMINAL_RENDERERS, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type TerminalCursorStyle, type TerminalRenderer, type VoiceButton } from "../lib/settings.ts";
+import { SHORTCUTS, bindingDisplayKeys, formatKeys, isMacPlatform, setShortcutRecording, shortcutDisplayKeys, shortcutKeys, shortcutConflict, type ShortcutId } from "../lib/shortcuts.ts";
+import { MENU_SHORTCUT_KEYS, recordShortcut, shortcutMatchesQuery } from "../lib/shortcutRecorder.ts";
+import { exactChordRisk, isReservedShortcutKey, parseExactChord } from "../lib/shortcutBindings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_RENDERERS, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type TerminalRenderer, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
-import { CONTRAST_MAX, CONTRAST_MIN, contrastText } from "../lib/contrast.ts";
-import type { FontSmoothing, PanelMotion } from "../lib/appearanceRendering.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
 import { KeyBarSettings } from "./KeyBarSettings.tsx";
 import { onSettingsHistory, recordSettings, settingsEntry, settingsLevels, type SettingsLevel } from "../lib/settingsHistory.ts";
@@ -31,6 +29,7 @@ import { dictationLocale, VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PortalPanel } from "./PortalPanel.tsx";
 import { copyText } from "../lib/clipboard.ts";
@@ -39,6 +38,7 @@ import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
 import { useSheetSwipe } from "../lib/sheets.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { CrashProbe, RegionCrash } from "./AppCrash.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { requestedSettingsPage, requestSettingsPage, type SettingsPageId } from "../lib/paletteSettings.ts";
@@ -71,14 +71,13 @@ function compactKeys(keys: readonly string[]): string {
 
 const FONT_LIST_LIMIT = 150;
 const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
-const UI_FONT_PLACEHOLDER = '"Noto Sans", "Segoe UI"';
 
 /**
  * A font family list, saved when the field is left, on Enter or when the dialog closes: saving
  * every keystroke would sanitize away the comma or space being typed, and each change of the
  * terminal's font refits the grid and resizes the pane.
  */
-function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null, placeholder = FONT_FAMILY_PLACEHOLDER }: { value: string; label: string; onCommit: (family: string) => void; /** the surface that needs every glyph on one advance: a proportional pick from the list is refused in its name */ fixedWidthFor?: "terminal" | "code" | null; placeholder?: string }) {
+function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null }: { value: string; label: string; onCommit: (family: string) => void; /** the surface that needs every glyph on one advance: a proportional pick from the list is refused in its name */ fixedWidthFor?: "terminal" | null }) {
   const t = useT();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -132,7 +131,7 @@ function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null, placeho
         <input
           className="input settings-font-input"
           value={draft}
-          placeholder={placeholder}
+          placeholder={FONT_FAMILY_PLACEHOLDER}
           maxLength={FONT_FAMILY_MAX_CHARS}
           aria-label={label}
           spellCheck={false}
@@ -174,7 +173,7 @@ function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null, placeho
               }
             }}
           />
-          {refused !== "" && <p className="settings-font-note" role="status">{fixedWidthFor === "code" ? t("{font} is not monospace. Code needs a fixed-width font, so the current font was kept.", { font: refused }) : t("{font} is not monospace. The terminal needs a fixed-width font, so the current font was kept.", { font: refused })}</p>}
+          {refused !== "" && <p className="settings-font-note" role="status">{t("{font} is not monospace. The terminal needs a fixed-width font, so the current font was kept.", { font: refused })}</p>}
           <ul className="settings-font-list" aria-label={t("Installed fonts")}>
             {matches.slice(0, FONT_LIST_LIMIT).map((family) => (
               <li key={family}>
@@ -238,12 +237,9 @@ function PaletteSelect({ id, value, onChange }: { id: string; value: PaletteName
   return (
     <select id={id} className="select settings-select" value={value} onChange={(event) => onChange(event.target.value as PaletteName)}>
       <option value="amber">{t("Amber")}</option>
-      <option value="report">{t("Dark report")}</option>
       <option value="charcoal">{t("Charcoal")}</option>
       <option value="catppuccin">{t("Catppuccin")}</option>
       <option value="catppuccin-black">{t("Catppuccin Black")}</option>
-      <option value="lilac">{t("Lilac")}</option>
-      <option value="forest">{t("Forest")}</option>
     </select>
   );
 }
@@ -271,20 +267,6 @@ function AppearancePage() {
           <PaletteSelect id="settings-palette" value={settings.palette} onChange={(palette) => update({ palette })} />
         </SettingsRow>
       )}
-      <SettingsRow label={t("Contrast")} description={t("How far text and hairlines stand out from the surfaces. Dim text keeps its contrast, so every step stays readable.")} wide>
-        <div className="settings-contrast">
-          <button type="button" className="icon-button" aria-label={t("Reset contrast")} disabled={settings.contrast === DEFAULT_SETTINGS.contrast} onClick={() => update({ contrast: DEFAULT_SETTINGS.contrast })}><RotateCcw aria-hidden="true" /></button>
-          <Stepper label={t("Contrast")} value={settings.contrast} text={contrastText(settings.contrast)} min={CONTRAST_MIN} max={CONTRAST_MAX} decreaseLabel={t("Decrease contrast")} increaseLabel={t("Increase contrast")} onChange={(contrast) => update({ contrast })} />
-        </div>
-      </SettingsRow>
-      {isMacPlatform() ? (
-        <SettingsRow label={t("Text smoothing")} description={t("Grayscale draws thinner text; System uses the macOS default.")} wide>
-          <Segmented<FontSmoothing> label={t("Text smoothing")} value={settings.fontSmoothing} onChange={(fontSmoothing) => update({ fontSmoothing })} options={[{ value: "grayscale", label: t("Grayscale") }, { value: "system", label: t("System") }]} />
-        </SettingsRow>
-      ) : null}
-      <SettingsRow label={t("Panel motion")} description={t("How fast the sidebar and phone sheets open and close. Off snaps them.")} wide>
-        <Segmented<PanelMotion> label={t("Panel motion")} value={settings.panelMotion} onChange={(panelMotion) => update({ panelMotion })} options={[{ value: "off", label: t("Off") }, { value: "fast", label: t("Fast") }, { value: "default", label: t("Default") }, { value: "slow", label: t("Slow") }]} />
-      </SettingsRow>
       <SettingsRow label={t("Density")}>
         <Segmented label={t("Density")} value={settings.density} onChange={(density) => update({ density })} options={[{ value: "comfortable", label: t("Comfortable") }, { value: "compact", label: t("Compact") }]} />
       </SettingsRow>
@@ -299,29 +281,17 @@ function AppearancePage() {
       <SettingsRow label={t("Agents order")} description={t("Activity keeps a waiting agent on top, then the one that changed last; herdr's own order is not changed")} wide>
         <Segmented label={t("Agents order")} value={settings.agentOrder} onChange={(agentOrder) => update({ agentOrder })} options={[{ value: "workspace", label: t("Workspaces") }, { value: "activity", label: t("Activity") }]} />
       </SettingsRow>
-      <SettingsRow label={t("Workspace cards")} description={t("In the Workspaces order, put each workspace's agents in a card under the workspace's name")}>
-        <Toggle label={t("Workspace cards")} checked={settings.agentCards} onChange={(agentCards) => update({ agentCards })} />
-      </SettingsRow>
-      <SettingsRow label={t("Pin agents")} description={t("Show a star beside each agent that keeps it at the top of the Agents list")}>
-        <Toggle label={t("Pin agents")} checked={settings.agentPins} onChange={(agentPins) => update({ agentPins })} />
-      </SettingsRow>
-      <SettingsRow label={t("Quiet opened finishes")} description={t("A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser")}>
-        <Toggle label={t("Quiet opened finishes")} checked={settings.quietOpenedDone} onChange={(quietOpenedDone) => update({ quietOpenedDone })} />
-      </SettingsRow>
       <SettingsRow label={t("Agent logos")} description={t("Draw each agent's logo in its brand colors, or without color")} wide>
         <Segmented label={t("Agent logos")} value={settings.agentMarks} onChange={(agentMarks) => update({ agentMarks })} options={[{ value: "color", label: t("Color") }, { value: "mono", label: t("Mono") }]} />
+      </SettingsRow>
+      <SettingsRow label={t("Status indicators")} description={t("Classic marks only the states that ask for a look; Dots and Symbols draw every state as herdr's TUI does")} wide>
+        <Segmented label={t("Status indicators")} value={settings.statusIndicators} onChange={(statusIndicators) => update({ statusIndicators })} options={[{ value: "classic", label: t("Classic") }, { value: "dots", label: t("Dots") }, { value: "symbols", label: t("Symbols") }]} />
       </SettingsRow>
     </SettingsGroup>
 
     <SettingsGroup title={t("Typography")} section="typography">
       <SettingsRow label={t("Interface font size")} description={t("Menus, lists, dialogs and the sidebar. The chat follows it until it has a size of its own; the terminal keeps its own.")}>
         <Stepper label={t("Interface font size")} value={uiFontSize(settings)} text={`${uiFontSize(settings)}px`} min={UI_FONT_MIN} max={UI_FONT_MAX} decreaseLabel={t("Decrease interface font size")} increaseLabel={t("Increase interface font size")} onChange={(size) => update({ uiFontSize: size })} />
-      </SettingsRow>
-      <SettingsRow label={t("Interface font")} description={t("Everything outside code and the terminal; the chat's text follows it until it has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
-        <FontFamilyInput value={settings.uiFontFamily} label={t("Interface font")} placeholder={UI_FONT_PLACEHOLDER} onCommit={(uiFontFamily) => update({ uiFontFamily })} />
-      </SettingsRow>
-      <SettingsRow label={t("Code font")} description={t("Code blocks, the file viewer, diffs, paths and keycaps; the terminal has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
-        <FontFamilyInput value={settings.codeFontFamily} label={t("Code font")} fixedWidthFor="code" onCommit={(codeFontFamily) => update({ codeFontFamily })} />
       </SettingsRow>
     </SettingsGroup>
     </>
@@ -331,6 +301,7 @@ function AppearancePage() {
 function ChatPage() {
   const { settings, update } = useSettings();
   const t = useT();
+  const touch = useMediaQuery("(pointer: coarse)");
   return (
     <>
       <SettingsGroup>
@@ -354,29 +325,14 @@ function ChatPage() {
         <SettingsRow label={t("Chat font")} description={t("Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
           <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
         </SettingsRow>
-        <SettingsRow label={t("Highlight code")} description={t("Colors code by its language. Off, code is plain text.")}>
-          <Toggle label={t("Highlight code")} checked={settings.highlightCode} onChange={(highlightCode) => update({ highlightCode })} />
-        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("Composer")} section="composer">
-        <SettingsRow label={t("PageUp / PageDown scroll chat")} description={t("Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.")}>
-          <Toggle label={t("PageUp / PageDown scroll chat")} checked={settings.chatPageKeys} onChange={(chatPageKeys) => update({ chatPageKeys })} />
-        </SettingsRow>
-        <SettingsRow label={t("Enter sends")} description={t("When off, Mod+Enter sends")}>
-          <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
-        </SettingsRow>
-        <SettingsRow label={t("Autocorrect")} description={t("The keyboard corrects, suggests and capitalizes what you type in the message box, on this device. Off, text stays exactly as typed.")}>
-          <Toggle label={t("Autocorrect")} checked={settings.chatAutocorrect} onChange={(chatAutocorrect) => update({ chatAutocorrect })} />
-        </SettingsRow>
-        <SettingsRow label={t("Files at once")} description={t("How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.")}>
-          <Stepper label={t("Files at once")} value={settings.attachLimit} text={String(settings.attachLimit)} min={ATTACH_LIMIT_MIN} max={ATTACH_LIMIT_MAX} decreaseLabel={t("Attach fewer files at once")} increaseLabel={t("Attach more files at once")} onChange={(attachLimit) => update({ attachLimit })} />
+        <SettingsRow label={touch ? t("Return inserts a new line") : t("Enter sends")} description={touch ? t("When on, use Send or hardware Mod+Enter to send.") : t("When off, Mod+Enter sends")}>
+          <Toggle label={touch ? t("Return inserts a new line") : t("Enter sends")} checked={touch ? !settings.enterSends : settings.enterSends} onChange={(checked) => update({ enterSends: touch ? !checked : checked })} />
         </SettingsRow>
         <SettingsRow label={t("Send queued messages automatically")} description={t("A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.")}>
           <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
-        </SettingsRow>
-        <SettingsRow label={t("Suggestion chip")} description={t("On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}>
-          <Toggle label={t("Suggestion chip")} checked={settings.showSuggestionChip} onChange={(showSuggestionChip) => update({ showSuggestionChip })} />
         </SettingsRow>
       </SettingsGroup>
 
@@ -435,18 +391,8 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
       <SettingsRow label={t("Terminal font size")} description={t("Applied to every terminal pane")}>
         <Stepper label={t("Terminal font size")} value={settings.terminalFontSize} text={`${settings.terminalFontSize}px`} min={TERMINAL_FONT_MIN} max={TERMINAL_FONT_MAX} decreaseLabel={t("Decrease terminal font size")} increaseLabel={t("Increase terminal font size")} onChange={(terminalFontSize) => update({ terminalFontSize })} />
       </SettingsRow>
-      <SettingsRow label={t("Fit 80 columns in a split pane")} description={t("A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.")}>
-        <Toggle label={t("Fit 80 columns in a split pane")} checked={settings.narrowPaneFont} onChange={(narrowPaneFont) => update({ narrowPaneFont })} />
-      </SettingsRow>
       <SettingsRow label={t("Terminal font")} description={t("Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
         <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} fixedWidthFor="terminal" onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
-      </SettingsRow>
-      <SettingsRow label={t("Cursor shape")} description={t("A program in the pane can still change this with its own cursor control sequence")} wide>
-        <Segmented label={t("Cursor shape")} value={settings.terminalCursorStyle} onChange={(terminalCursorStyle: TerminalCursorStyle) => update({ terminalCursorStyle })}
-          options={TERMINAL_CURSOR_STYLES.map((style) => ({ value: style, label: t(style === "block" ? "Block" : style === "bar" ? "Bar" : "Underline") }))} />
-      </SettingsRow>
-      <SettingsRow label={t("Blinking cursor")}>
-        <Toggle label={t("Blinking cursor")} checked={settings.terminalCursorBlink} onChange={(terminalCursorBlink) => update({ terminalCursorBlink })} />
       </SettingsRow>
       <SettingsRow label={t("Renderer")} description={t("GPU draws the terminal with WebGL, which keeps scrolling smooth on a phone. Auto uses it on touch screens.")} wide>
         <Segmented label={t("Renderer")} value={settings.terminalRenderer} onChange={(terminalRenderer: TerminalRenderer) => update({ terminalRenderer })}
@@ -456,8 +402,9 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
         <Stepper label={t("Wheel scroll speed")} value={settings.terminalWheelSpeed} text={`${settings.terminalWheelSpeed}×`} min={TERMINAL_WHEEL_SPEED_MIN} max={TERMINAL_WHEEL_SPEED_MAX} decreaseLabel={t("Slower wheel scrolling")} increaseLabel={t("Faster wheel scrolling")} onChange={(terminalWheelSpeed) => update({ terminalWheelSpeed })} />
       </SettingsRow>
       <SettingsRow label={t("Terminal input mode")} htmlFor="terminal-input-mode">
-        <select id="terminal-input-mode" className="select settings-select" value={settings.terminalInputMode} onChange={(event) => update({ terminalInputMode: event.target.value as "auto" | "line" | "direct" })}>
-          <option value="auto">{t("Automatic")}</option><option value="line">{t("Input line")}</option><option value="direct">{t("Direct typing")}</option>
+        {/* "auto", the stored default, types straight into the grid on every device: it reads as Direct typing */}
+        <select id="terminal-input-mode" className="select settings-select" value={settings.terminalInputMode === "line" ? "line" : "direct"} onChange={(event) => update({ terminalInputMode: event.target.value as "line" | "direct" })}>
+          <option value="direct">{t("Direct typing")}</option><option value="line">{t("Input line")}</option>
         </select>
       </SettingsRow>
       <SettingsRow label={t("Key bar")} description={t("Keys, order and custom combinations for the terminal.")}>
@@ -677,9 +624,6 @@ function UsagePage() {
           <SettingsRow label={t("Limit shown")} description={t("The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.")} wide>
             <Segmented label={t("Limit shown")} value={settings.usageGlance} onChange={(usageGlance) => update({ usageGlance })} options={[{ value: "week", label: t("Weekly") }, { value: "session", label: t("Session") }]} />
           </SettingsRow>
-          <SettingsRow label={t("Show pace")} description={t("On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.")}>
-            <Toggle label={t("Show pace")} checked={settings.usagePace} onChange={(usagePace) => update({ usagePace })} />
-          </SettingsRow>
         </>}
       </SettingsGroup>
       {settings.showUsage && usage.report && usage.report.providers.length > 0 && <UsageAccounts providers={usage.report.providers} />}
@@ -760,7 +704,18 @@ function ShortcutsPage() {
   const platformIsMac = isMacPlatform();
   const [query, setQuery] = useState("");
   const [recording, setRecording] = useState<{ id: ShortcutId; problem: string | null } | null>(null);
+  // a recorded chord the terminal or the browser also uses waits here for Save anyway or Cancel
+  const [pending, setPending] = useState<{ id: ShortcutId; value: string; risk: "terminal" | "browser" } | null>(null);
+  // Save anyway and Cancel leave with the prompt: focus goes back to the row's Record button
+  const recordButtons = useRef(new Map<ShortcutId, HTMLButtonElement>());
+  const settlePending = (id: ShortcutId): void => {
+    setPending(null);
+    recordButtons.current.get(id)?.focus();
+  };
   const recordingId = recording?.id ?? null;
+  const riskText = (risk: "terminal" | "browser", keys: string): string => risk === "terminal"
+    ? t("{keys} is a terminal key: shells, editors and agents use it. Once saved, it no longer reaches the pane.", { keys })
+    : t("Your browser or operating system may intercept {keys}.", { keys });
   // while a row records, the chord pressed is read here and the app's own dispatcher stands down
   useEffect(() => {
     if (recordingId === null) return;
@@ -772,12 +727,16 @@ function ShortcutsPage() {
       event.stopPropagation();
       if (result.kind === "cancel") return setRecording(null);
       if (result.kind === "invalid") {
-        const problem = result.reason === "chord" ? t("Hold {mod}+Shift and press a key.", { mod: modKeyLabel() }) : result.reason === "key" ? t("That key cannot be a shortcut.") : t("Your browser or operating system keeps that shortcut.");
+        const problem = result.reason === "chord"
+          ? (platformIsMac ? t("Hold ⌘, Ctrl or ⌥, with or without Shift, and press a key.") : t("Hold Ctrl or Alt, with or without Shift, and press a key."))
+          : result.reason === "key" ? t("That key cannot be a shortcut.") : t("Your browser or operating system keeps that shortcut.");
         return setRecording({ id: recordingId, problem });
       }
-      if (shortcutConflict(recordingId, [result.key], settings.shortcutOverrides)) return setRecording({ id: recordingId, problem: t("Already assigned") });
-      update({ shortcutOverrides: { ...settings.shortcutOverrides, [recordingId]: result.key } });
+      const value = result.kind === "key" ? result.key : result.value;
+      if (shortcutConflict(recordingId, [value], settings.shortcutOverrides, platformIsMac)) return setRecording({ id: recordingId, problem: t("Already assigned") });
       setRecording(null);
+      if (result.kind === "exact" && result.risk !== null) return setPending({ id: recordingId, value, risk: result.risk });
+      update({ shortcutOverrides: { ...settings.shortcutOverrides, [recordingId]: value } });
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => {
@@ -802,33 +761,47 @@ function ShortcutsPage() {
         onChange={(event) => setQuery(event.target.value)}
       />
       {visible.length === 0 && <p className="settings-hint" role="status">{t("No shortcuts match.")}</p>}
-      <SettingsGroup className="settings-shortcuts" section="shortcuts" note={<>{t("Bindings apply to this browser and device; Mod+Shift is fixed.")} {t("Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.")} {t("The mobile key bar sends terminal keys, not app actions.")}</>}>
+      <SettingsGroup className="settings-shortcuts" section="shortcuts" note={<>{t("Bindings apply to this browser and device. Mod+Shift chords leave the terminal its keys; Record also takes other chords with Ctrl, Alt or (on a Mac) ⌘, exactly as pressed.")} {t("Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.")} {t("The mobile key bar sends terminal keys, not app actions.")}</>}>
         {visible.map((shortcut) => {
           const displayedKeys = shortcutDisplayKeys(shortcut.id, settings.shortcutOverrides);
           const selectedKey = displayedKeys[displayedKeys.length - 1];
-          const selectedReserved = selectedKey !== undefined && isReservedShortcutKey(selectedKey, platformIsMac);
+          const override = Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] : null;
+          const exact = override ? parseExactChord(override) : null;
+          const selectedRisk = exact ? exactChordRisk(exact, platformIsMac) : selectedKey !== undefined && isReservedShortcutKey(selectedKey, platformIsMac) ? "browser" : null;
+          const confirming = pending?.id === shortcut.id ? pending : null;
           const defaultKeys = shortcutDisplayKeys(shortcut.id, {});
           const defaultKey = defaultKeys[defaultKeys.length - 1];
           const defaultReserved = defaultKey !== undefined && isReservedShortcutKey(defaultKey, platformIsMac);
+          // a binding without a default key is off by default: its Default row reads Off, with no second Off
+          const unbound = defaultKeys.length === 0;
+          const rowText = recording?.id === shortcut.id ? (recording.problem ?? t("Press the new shortcut, or Escape to cancel.")) : confirming ? riskText(confirming.risk, compactKeys(bindingDisplayKeys(confirming.value))) : selectedRisk ? riskText(selectedRisk, compactKeys(displayedKeys)) : undefined;
           return (
-            <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={recording?.id === shortcut.id ? (recording.problem ?? t("Press the new shortcut, or Escape to cancel.")) : selectedReserved ? t("Your browser or operating system may intercept {keys}.", { keys: compactKeys(displayedKeys) }) : undefined}>
+            <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={rowText === undefined ? undefined : <span role="status">{rowText}</span>}>
               {shortcut.id === "voice" ? <span className="settings-keys">{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span> : (
                 <span className="settings-shortcut-control">
-                <button type="button" className="btn settings-shortcut-record" aria-pressed={recording?.id === shortcut.id} aria-label={t("Record shortcut for {name}", { name: t(shortcut.label) })} onClick={() => setRecording(recording?.id === shortcut.id ? null : { id: shortcut.id, problem: null })}>{recording?.id === shortcut.id ? t("Press keys…") : t("Record")}</button>
-                <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
+                <button type="button" className="btn settings-shortcut-record" ref={(button) => { if (button) recordButtons.current.set(shortcut.id, button); else recordButtons.current.delete(shortcut.id); }} aria-pressed={recording?.id === shortcut.id} aria-label={t("Record shortcut for {name}", { name: t(shortcut.label) })} onClick={() => { setPending(null); setRecording(recording?.id === shortcut.id ? null : { id: shortcut.id, problem: null }); }}>{recording?.id === shortcut.id ? t("Press keys…") : t("Record")}</button>
+                {confirming ? <>
+                  <button type="button" className="btn settings-shortcut-confirm" onClick={() => {
+                    settlePending(confirming.id);
+                    update({ shortcutOverrides: { ...settings.shortcutOverrides, [confirming.id]: confirming.value } });
+                  }}>{t("Save anyway")}</button>
+                  <button type="button" className="btn" onClick={() => settlePending(confirming.id)}>{t("Cancel")}</button>
+                </> : <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? (unbound ? "default" : "off") : "default"} onChange={(event) => {
                   const next = { ...settings.shortcutOverrides };
                   if (event.target.value === "default") delete next[shortcut.id];
                   else next[shortcut.id] = event.target.value === "off" ? null : event.target.value;
                   update({ shortcutOverrides: next });
                 }}>
-                  <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{compactKeys(defaultKeys)}{defaultReserved ? ` — ${t("Reserved")}` : ""}</option>
-                  <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>
-                  {SHORTCUT_KEYS.map((key) => {
+                  <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{unbound ? t("Off") : compactKeys(defaultKeys)}{defaultReserved ? ` — ${t("Reserved")}` : ""}</option>
+                  {!unbound && <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>}
+                  {/* a recorded chord the list below does not offer (exact modifiers, Home, End, punctuation) is listed as itself */}
+                  {override && (exact || !MENU_SHORTCUT_KEYS.includes(override)) && <option value={override}>{compactKeys(displayedKeys)}</option>}
+                  {MENU_SHORTCUT_KEYS.map((key) => {
                     const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
                     const reserved = isReservedShortcutKey(key, platformIsMac);
                     return <option key={key} value={key} disabled={conflict}>{compactKeys(["Mod", "Shift", key])}{reserved ? ` — ${t("Reserved")}` : ""}{conflict ? " — " + t("Already assigned") : ""}</option>;
                   })}
-                </select>
+                </select>}
                 </span>
               )}
             </SettingsRow>
@@ -836,18 +809,17 @@ function ShortcutsPage() {
         })}
       </SettingsGroup>
       <div className="settings-actions">
-        <button type="button" className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>
+        <button type="button" className="btn" onClick={() => {
+          setPending(null);
+          setRecording(null);
+          update({ shortcutOverrides: {} });
+        }}>{t("Reset shortcuts")}</button>
       </div>
-      <SettingsGroup title={t("Paging")} section="paging">
-        <SettingsRow label={t("Page overlap")} description={t("Lines kept visible between pages in chat and terminal history. Zero scrolls a full page.")}>
-          <Stepper label={t("Page overlap")} value={settings.pageOverlapRows} text={String(settings.pageOverlapRows)} min={0} max={100} decreaseLabel={t("Decrease page overlap")} increaseLabel={t("Increase page overlap")} onChange={(pageOverlapRows) => update({ pageOverlapRows })} />
-        </SettingsRow>
-      </SettingsGroup>
     </>
   );
 }
 
-function DevicesPage({ auth }: { auth: HealthAuth | null }) {
+function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: (() => Promise<void>) | null }) {
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
@@ -861,6 +833,7 @@ function DevicesPage({ auth }: { auth: HealthAuth | null }) {
   const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   return (
     <>
       <SettingsGroup title={t("Phone")} section="phone">
@@ -877,6 +850,16 @@ function DevicesPage({ auth }: { auth: HealthAuth | null }) {
 
       <SettingsGroup title={t("Devices")} section="devices">
         <div className="settings-item"><DevicesPanel pairUrl={pairUrl} auth={auth} /></div>
+        {onSignOut && (
+          <SettingsRow label={t("Sign out")} description={t("Forget this browser's sign-in. Getting back in takes the access token or a pairing code.")}>
+            <button type="button" className="btn" onClick={() => setConfirmSignOut(true)}>{t("Sign out")}</button>
+          </SettingsRow>
+        )}
+        {onSignOut && confirmSignOut && (
+          <ConfirmDialog title={t("Sign out of this browser?")}
+            body={t("Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.")}
+            confirmLabel={t("Sign out")} onClose={() => setConfirmSignOut(false)} onConfirm={onSignOut} />
+        )}
       </SettingsGroup>
     </>
   );
@@ -915,7 +898,7 @@ function PluginsGroup() {
   }, [api]);
   if (plugins.length === 0) return null;
   return (
-    <SettingsGroup title={t("herdr plugins")} note={t("Run a plugin's actions from the command palette.")} className="settings-plugins">
+    <SettingsGroup title={t("herdr plugins")} note={t("The command palette and its plugin actions are not available in the phone touch UI. Use a wider screen or a keyboard's command palette shortcut.")} className="settings-plugins">
       {plugins.map((plugin) => (
         <SettingsRow key={plugin.plugin_id} label={`${plugin.name} ${plugin.version}`} description={plugin.actions.length > 0 ? plugin.actions.map((action) => action.title).join(" · ") : t("No actions")}>
           <span className="settings-hint">{plugin.enabled ? t("Enabled") : t("Disabled")}</span>
@@ -1096,7 +1079,7 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
       case "voice": return <VoicePage />;
       case "usage": return <UsagePage />;
       case "shortcuts": return <ShortcutsPage />;
-      case "devices": return <DevicesPage auth={auth} />;
+      case "devices": return <DevicesPage auth={auth} onSignOut={actions.lock} />;
       case "remote": return <RemotePcsPage actions={actions} pcSettings={pcSettings} pcSettingsError={pcSettingsError} onPcSettings={(patch) => void updatePcSettings(patch)} />;
       case "integrations": return <IntegrationsPage />;
       case "about": return <AboutPage updates={updates} herdrVersion={herdrVersion} bridgesFollow={pcSettings?.auto_update_bridges === true} />;

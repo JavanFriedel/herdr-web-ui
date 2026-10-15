@@ -5,12 +5,12 @@ input boundary; the terminal screen is still rendered from the attach stream.
 
 ## Input modes and drafts
 
-Settings → Terminal → Terminal input mode offers Automatic, Input line and Direct typing.
-Automatic keeps the existing device preference: a touch screen uses the input line unless the
-user previously chose direct typing; a fine pointer uses direct typing. The key bar's keyboard
+Settings → Terminal → Terminal input mode offers Direct typing, the default on every device
+with phones included, and Input line, for a line you edit before sending. The key bar's keyboard
 button switches modes too, on a touch screen only: a desktop changes the mode in Settings.
-Settings → Shortcuts can change each app action's Mod+Shift key or return its keys to the
-terminal. The hold-to-dictate binding remains fixed. Conflicts include the legacy New workspace
+Settings → Shortcuts can change each app action's binding or return its keys to the terminal.
+Bindings default to Mod+Shift, which leaves Ctrl+key to the pane; a recorded plain Ctrl/Alt chord
+takes that key from the pane only after Save anyway. The hold-to-dictate binding remains fixed. Conflicts include the legacy New workspace
 alias, and Reset restores the defaults. Palette hints reflect the saved bindings and disappear
 when a binding is off. Known browser/OS reservations are marked; delivery still depends on the
 browser, OS and installed-app mode. These settings belong to this browser, not the remote PC.
@@ -30,6 +30,9 @@ visible prompt before input and Enter; each automatic next message also waits fo
 the preceding turn started and finished, and an explicit send refused in between does not end that wait. It never sends native Tab and then resends that text.
 Tab/workspace navigation on the same PC retains the original pane attachment while its automatic
 queue waits.
+A page left for another address ends its connection at `pagehide`, also when the browser keeps the
+page for Back (the back/forward cache): its queue is then lost like any closed connection's, and the
+page connects again when it is shown.
 Pending acceptance is distinct from a committing-key receipt. Connection loss, actual pane detachment
 and observe mode pause the pending list; reconnect or reload cannot rearm it. Losing a pane
 lease permanently cancels its in-flight send, even if that connection rejoins the same attachment
@@ -49,7 +52,8 @@ Control sequences are left out, never saved for later execution, and not counted
 answers to a program (cursor position, focus, mouse) arrive the same way. Send transmits the held
 text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
 left out whole and the notice says some input was left out, also when nothing else is held. No
-draft is replayed on reconnect. The chat Send button preserves an active composition. The input-line
+draft is replayed on reconnect. The chat message box's Send, tapped during composition,
+finishes the word the same way, with the same notes, and sends the box as shown. The input-line
 Send tapped during composition finishes the word itself (a blur and refocus inside the tap, which
 ends the composition in Chrome and keeps the keyboard up) and sends the committed line, read from
 the draft; "Finishing the word…" shows only while the word is still open after the tap. A keyboard

@@ -7,6 +7,7 @@ import type {
   CreateWorktreeRequest,
   CreateTabRequest,
   CreateWorkspaceRequest,
+  DirectoryCreated,
   DirectoryListing,
   FileInfo,
   FocusPaneRequest,
@@ -14,15 +15,12 @@ import type {
   IntegrationsResponse,
   LanExposure,
   InteractivePrompt,
-  MovePaneDestination,
-  MovePaneRequest,
   MoveTabRequest,
   TabMoved,
   OmoActivity,
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
-  PaneMoved,
   PaneDirection,
   PaneInfo,
   PanePlan,
@@ -278,13 +276,25 @@ function trimConversationAnswers(keep: string): void {
   }
 }
 
-/** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
-export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
+function conversationUrl(paneId: string, machineId: string, page: ConversationPageQuery): string {
   const query = new URLSearchParams({ pane_id: paneId });
   if (page.before !== undefined) query.set("before", page.before);
   if (page.since !== undefined) query.set("since", page.since);
   if (page.from !== undefined) query.set("from", page.from);
-  const url = machinePath(machineId, `pane/conversation?${query.toString()}`);
+  return machinePath(machineId, `pane/conversation?${query.toString()}`);
+}
+
+/**
+ * The newest page last answered for this pane (no page query), without asking the server: a chat
+ * that mounts draws it at once while its read revalidates it. It leaves the cache order alone.
+ */
+export function peekPaneConversation(paneId: string, machineId = "local"): ConversationResponse | undefined {
+  return conversationAnswers.get(conversationUrl(paneId, machineId, {}))?.body;
+}
+
+/** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
+export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
+  const url = conversationUrl(paneId, machineId, page);
   const polled = page.before === undefined;
   const known = polled ? conversationAnswers.get(url) : undefined;
   const { response, body } = await withChatReadDeadline(async (signal) => {
@@ -493,16 +503,6 @@ export async function renameAgent(paneId: string, name: string | null, machineId
 }
 
 /**
- * POST /api/pane/move: the pane into another tab, a new tab (of its workspace or another) or a
- * new workspace, herdr's `pane move`. A pane that leaves its workspace answers to a new id:
- * `pane.pane_id`, beside `previous_pane_id`, which is the one sent. herdr's own focus stays.
- */
-export async function movePane(paneId: string, destination: MovePaneDestination, machineId = "local"): Promise<PaneMoved> {
-  const response = await sendJson(machinePath(machineId, "pane/move"), "POST", { pane_id: paneId, destination } satisfies MovePaneRequest);
-  return (await response.json()) as PaneMoved;
-}
-
-/**
  * POST /api/pane/split: a new pane beside this one in herdr (its prefix+v / prefix+-), answered as
  * herdr lists it. herdr's focus stays put unless `focus` asks for the new pane; the sidebar and the
  * tab strip learn of it from the server's session-changed broadcast.
@@ -562,6 +562,12 @@ export async function fetchIntegrations(machineId = "local"): Promise<Integratio
 export async function fetchDirectories(path: string, hidden: boolean, machineId = "local", files = false, paneId: string | null = null): Promise<DirectoryListing> {
   const query = new URLSearchParams({ path, ...(hidden ? { hidden: "1" } : {}), ...(files ? { files: "1" } : {}), ...(paneId ? { pane_id: paneId } : {}) });
   return getJson<DirectoryListing>(machinePath(machineId, `workspace/directories?${query.toString()}`));
+}
+
+/** POST /api/workspace/directories: makes the folder `name` inside `path`, for the folder browser's New folder. */
+export async function createDirectory(path: string, name: string, machineId = "local"): Promise<DirectoryCreated> {
+  const response = await sendJson(machinePath(machineId, "workspace/directories"), "POST", { path, name });
+  return (await response.json()) as DirectoryCreated;
 }
 
 function fileQuery(path: string, paneId: string | null): string {

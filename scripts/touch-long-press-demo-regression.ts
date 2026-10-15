@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
+import { chromePath } from "./chrome-path.ts";
 
 // A long press on a pane on a touch screen is the phone's own (select text, copy): it does not
 // open the pane menu. A right-click still does. On the unmodified app over the demo's fixture
@@ -14,9 +15,10 @@ const app = mkdtempSync(join(tmpdir(), "herdr-touch-long-press-demo-"));
 /**
  * Fires a contextmenu on the chat as `pointerType` would, and says whether the page took it.
  * "legacy-touch": a browser whose contextmenu carries no pointer type, after a touch;
- * "keyboard": Shift+F10 after that touch, a contextmenu with no pointer type either.
+ * "keyboard": Shift+F10 after that touch, a contextmenu with no pointer type either;
+ * "drag-select": Android Chrome after a dragged selection, a contextmenu typed "mouse" with no press of its own.
  */
-const press = (page: Page, how: "touch" | "mouse" | "legacy-touch" | "keyboard"): Promise<boolean> => page.locator(".pane-frame.is-current .pane-frame-body").evaluate((body, how) => {
+const press = (page: Page, how: "touch" | "mouse" | "legacy-touch" | "keyboard" | "drag-select"): Promise<boolean> => page.locator(".pane-frame.is-current .pane-frame-body").evaluate((body, how) => {
   const target = body.querySelector(".chat-view, .terminal-stack") ?? body;
   const rect = target.getBoundingClientRect();
   const type = how === "mouse" ? "mouse" : "touch";
@@ -24,7 +26,8 @@ const press = (page: Page, how: "touch" | "mouse" | "legacy-touch" | "keyboard")
   target.dispatchEvent(new PointerEvent("pointerdown", { ...at, button: type === "mouse" ? 2 : 0, buttons: type === "mouse" ? 2 : 1 }));
   target.dispatchEvent(new PointerEvent("pointerup", { ...at, button: type === "mouse" ? 2 : 0, buttons: 0 }));
   if (how === "keyboard") target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, composed: true, key: "F10", shiftKey: true }));
-  const event = how === "touch" || how === "mouse" ? new PointerEvent("contextmenu", { ...at, button: 2 }) : new MouseEvent("contextmenu", { ...at, button: 2 });
+  const event = how === "drag-select" ? new PointerEvent("contextmenu", { ...at, pointerType: "mouse", button: -1 })
+    : how === "touch" || how === "mouse" ? new PointerEvent("contextmenu", { ...at, button: 2 }) : new MouseEvent("contextmenu", { ...at, button: 2 });
   target.dispatchEvent(event);
   return event.defaultPrevented;
 }, how);
@@ -43,7 +46,7 @@ try {
     return (await body.exists()) ? new Response(body) : new Response("not found", { status: 404 });
   } });
   try {
-    const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+    const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     try {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
       await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat" })));
@@ -56,6 +59,7 @@ try {
       const paneMenu = page.getByRole("dialog", { name: /^Pane actions for / });
 
       assert.equal(await press(page, "touch"), false, "a touch long press keeps the phone's own selection and copy");
+      assert.equal(await press(page, "drag-select"), false, "the contextmenu typed mouse that ends a dragged selection is the touch's");
       await page.waitForTimeout(300);
       assert.equal(await paneMenu.count(), 0, "a touch long press opens no pane menu");
 

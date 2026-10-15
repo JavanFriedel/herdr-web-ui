@@ -31,7 +31,7 @@ export function MachineSidebar(props: Props) {
   const t = useT();
   const { canInstall, installed, install, help } = useInstallPrompt();
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
-  // both lists draw from it: live counters per PC and the finishes looked at here (lib/sidebarActivity.tsx);
+  // both lists draw from it: live counters per PC (lib/sidebarActivity.tsx);
   // App owns it, since the drawer's toggle counts Needs you from it too
   const { activity } = props;
   // no top bar: a workspace starts from its PC's header, and Add PC lives in Settings → Remote PCs

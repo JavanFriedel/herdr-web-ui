@@ -20,8 +20,17 @@ const thirdPartyNotices: Plugin = {
   },
 };
 
+// the commit this client was built from, read by the managed bridge that serves it (server/update-api.ts):
+// a checkout rebuilt under a running server serves this build before the server runs it
+const buildRevision: Plugin = {
+  name: "build-revision",
+  generateBundle() {
+    if (revision !== null) this.emitFile({ type: "asset", fileName: "build.json", source: `${JSON.stringify({ revision })}\n` });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), thirdPartyNotices, compressedAssets(), serviceWorkerBuild()],
+  plugins: [react(), thirdPartyNotices, buildRevision, compressedAssets(), serviceWorkerBuild()],
   define: {
     __APP_REVISION__: JSON.stringify(revision),
     __APP_VERSION__: JSON.stringify((JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version),
@@ -31,7 +40,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:7317",
+      // not the string shorthand: Vite gives that changeOrigin, and the server's same-origin check
+      // compares the browser's Origin (:5173) with the Host it was sent, which must stay :5173
+      "/api": { target: "http://localhost:7317", changeOrigin: false },
       "/ws": { target: "ws://localhost:7317", ws: true },
     },
   },

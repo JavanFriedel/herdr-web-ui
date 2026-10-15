@@ -4,6 +4,14 @@ Thanks for helping. Bugs and ideas go in an [issue](https://github.com/devswha/h
 security problems never do: see [SECURITY.md](SECURITY.md). For a larger change, open an issue first so
 the approach can be agreed before you build it. Small fixes can go straight to a PR.
 
+**Features.** Open a [feature request](https://github.com/devswha/herdr-web-ui/issues/new?template=feature_request.yml)
+and wait for a maintainer's yes before you write code; a feature PR without one may be closed, however
+well it is built. The app is a bridge to herdr, so a feature should either mirror something herdr's
+own TUI does, or meet a need that widely used coding-agent apps already meet (the Codex and Claude
+apps, Paseo, T3 Code and the like). A convenience none of them offers, or one that adds a new setting
+or UI concept for a narrow case, is likely to be declined: every one stays for good, to be maintained
+and tested on every release.
+
 Everything a PR is checked against is in this repository: this file, the
 [review rules](.github/REVIEW.md), the [development guide](docs/development.md),
 [DESIGN.md](DESIGN.md) and the `AGENTS.md` files ([root](AGENTS.md), [server](server/AGENTS.md),
@@ -77,10 +85,16 @@ running terminals: see [development](docs/development.md#checks).
   contract test (`server/api.contract.test.ts` for endpoints). A test that needs a live herdr is named
   `*.contract.test.ts`.
 - **herdr wire types:** never edit `shared/herdr-api.generated.ts`; run `bun run generate:types`.
-- **UI text:** every new `t("…")` string needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts`,
-  `i18n.zh.ts` and `i18n.tr.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
+- **UI text:** every new `t("…")` string needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts`
+  and `i18n.zh.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
   untranslated entry.
+- **UI languages:** the app keeps English, Korean, Japanese and Simplified Chinese and does not take
+  new ones. Every language has to translate each later string, so a PR that adds a language is
+  closed.
 - **UI:** component CSS uses the tokens in `src/styles.css` (see [DESIGN.md](DESIGN.md)).
+- **Color palettes:** the app keeps three (Amber, Charcoal, Catppuccin) and does not take new ones.
+  Every palette is a light and a dark block that each later token change has to fill in, so a PR
+  that adds a palette is closed.
 - **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every
   merge to `main`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
   else gets its 404.

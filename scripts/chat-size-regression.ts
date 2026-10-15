@@ -7,7 +7,8 @@ import type { Machine } from "../shared/machines.ts";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { PtySession } from "../server/pty/session.ts";
-import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, tabCreate, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { chromePath } from "./chrome-path.ts";
 
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
@@ -142,7 +143,9 @@ export async function checkChatKeepsTerminalSize(browser: Browser, origin: strin
     // an agent pane opens in the chat lens on a phone; the shell under it answers `stty size`
     await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "idle" });
     await agentListed(origin, paneId);
-    const size = shellSize(paneId);
+    // This scenario resizes the pty while probing it. Read each shell answer from a file:
+    // reflow can erase a completed answer from pane.read's screen snapshot.
+    const size = shellSize(paneId, cwd);
     const open = (options: Parameters<Browser["newContext"]>[0], settings: object) => openRecording(browser, contexts, origin, paneId, options, settings);
     const sent = (page: Page) => page.evaluate(() => (window as unknown as { frames_: { dir: string; type: string; keep_size?: boolean }[] }).frames_.filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize")));
 
@@ -169,6 +172,55 @@ export async function checkChatKeepsTerminalSize(browser: Browser, origin: strin
     assert.notEqual(phoneSize, desktopSize, "the phone's terminal lens fits the grid to the phone");
     assert.ok(Number(phoneSize.split(" ")[1]) < Number(desktopSize.split(" ")[1]), `phone ${phoneSize} narrower than desktop ${desktopSize}`);
     console.log(`PASS the phone's terminal lens fits the grid to ${phoneSize}`);
+
+    // Regression (#1085): a window blur is not a hidden terminal. Its grid must remain
+    // eligible when the phone leaves the terminal, without changing blur's reconnect policy.
+    const blurMark = (await framesOf(desktop)).length;
+    await phone.bringToFront();
+    await desktop.evaluate(() => {
+      if (document.visibilityState !== "visible") throw new Error("desktop must stay visible");
+      // Headless contexts each retain focus; model the OS window blur without hiding the page.
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+      window.dispatchEvent(new Event("blur"));
+    });
+    assert.equal((await framesOf(desktop)).slice(blurMark)
+      .filter((f) => f.dir === "out" && f.type === "release-size").length, 0,
+    "a visible desktop blur does not release its grid");
+    await desktop.evaluate(([rows, cols]) => {
+      const socket = (window as unknown as { socket_: WebSocket }).socket_;
+      let finish: (time: number) => void;
+      // A deadline resolves to Infinity so a late delivery fails without an unhandled rejection.
+      const restored = new Promise<number>((resolve) => { finish = resolve; });
+      Object.assign(window, { gridRestored_: restored });
+      const timer = window.setTimeout(() => {
+        socket.removeEventListener("message", receive);
+        finish(Infinity);
+      }, 5_000);
+      function receive(event: MessageEvent): void {
+        const frame = JSON.parse(String(event.data));
+        if (frame.type !== "pane-geometry" || frame.rows !== rows || frame.cols !== cols) return;
+        window.clearTimeout(timer);
+        socket.removeEventListener("message", receive);
+        finish(Date.now());
+      }
+      socket.addEventListener("message", receive);
+    }, desktopSize.split(" ").map(Number));
+    const chatAt = Date.now();
+    await phone.locator('button[title^="Chat transcript"]').tap();
+    const restoredAt = await desktop.evaluate(() => (window as unknown as { gridRestored_: Promise<number> }).gridRestored_);
+    assert.ok(restoredAt - chatAt <= 1_000, "phone Chat restores the visible desktop grid within 1 s");
+    // pane-geometry announces the resize before the sidecar applies it to herdr's pty.
+    // Read shell replies within the same 1 s budget, rather than racing the sidecar once.
+    let restoredSize = "";
+    while (Date.now() < chatAt + 1_000 && restoredSize !== desktopSize) restoredSize = await size();
+    assert.equal(restoredSize, desktopSize, "the unfocused desktop's grid is restored in the real pty");
+    assert.ok(Date.now() - chatAt <= 1_000, "the real pty restores the desktop grid within 1 s");
+    console.log(`PASS phone Chat restores the visible unfocused desktop's ${desktopSize}`);
+    await phone.locator('button[title^="Live terminal"]').tap();
+    let reclaimedSize = "";
+    const reclaimDeadline = Date.now() + 10_000;
+    while (Date.now() < reclaimDeadline && reclaimedSize !== phoneSize) reclaimedSize = await size();
+    assert.equal(reclaimedSize, phoneSize, "returning to the phone terminal still reclaims its grid");
 
     // the desktop's terminal lens ignored that resize: it drives the grid itself. Entering the chat
     // lens, its hidden screen takes the grid the pty has now, since what the chat reads there (a
@@ -366,18 +418,14 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     assert.equal(await size(), phoneSize, "a background reconnect leaves the phone's grid");
     console.log("PASS a desktop window reconnecting in the background does not take the pane again");
 
-    // it reloads in the background: the first attach adopts the grid, and so does the chosen font
-    // loading after it; a moment later it lets go of the pane again
+    // Even a safe join is watched: the client cannot know whether the phone's attach still exists.
     await desktop.context().addInitScript(() => Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false }));
     await desktop.reload();
     await desktop.locator(".conn-live").waitFor();
-    await attached(desktop);
-    await Bun.sleep(NO_RESIZE_WAIT_MS);
-    assert.deepEqual(await sizing(desktop), [{ dir: "out", type: "attach", keep_size: true }], "a background reload attaches without resizing");
-    assert.equal(await size(), phoneSize, "a background reload leaves the phone's grid");
-    await desktop.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "out" && f.type === "detach"), undefined, { timeout: 10_000 });
     await viewOnly(desktop).waitFor({ timeout: 10_000 });
-    console.log("PASS a desktop window reloading in the background leaves the shared grid, then lets go of the pane");
+    assert.deepEqual(await sizing(desktop), [], "a background reload watches without attaching");
+    assert.equal(await size(), phoneSize, "a background reload leaves the phone's grid");
+    console.log("PASS a desktop window reloading in the background watches without joining the shared attach");
 
     // the phone leaves too: no tab uses the pane, and the bridge lets go of herdr's attach,
     // which is what gives the pane back to herdr's own TUI
@@ -399,7 +447,10 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
 
     // the pane closes in herdr and the window moves on to the focused one in the background: having
     // let go, it attaches nothing until the user is back, and that pane keeps the size it has
+    await paneSendText(nextPane, "stty cols 132 rows 38");
+    await paneSendKeys(nextPane, ["Enter"]);
     const nextBefore = await nextSize();
+    assert.equal(nextBefore, "38 132");
     assert.notEqual(nextBefore, desktopSize, "the next pane starts at a size the window would change");
     const switching = (await sizing(desktop)).length;
     const watchesBeforeSwitch = (await framesOf(desktop)).filter((frame) => frame.dir === "out" && frame.type === "watch").length;
@@ -419,7 +470,7 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
       delete (document as unknown as { hasFocus?: unknown }).hasFocus;
       window.dispatchEvent(new Event("focus"));
     });
-    await attached(desktop, 2);
+    await attached(desktop);
     assert.deepEqual((await sizing(desktop)).slice(returning).map((f) => ({ type: f.type, keep_size: f.keep_size ?? false })), [{ type: "attach", keep_size: false }], "the focused window attaches at its own size");
     const back = Date.now() + 10_000;
     let current = nextBefore;
@@ -442,12 +493,16 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
   const failures: string[] = [];
   try {
     const panes: string[] = [];
+    const tabs = new Map<string, string>();
+    const terminals = new Map<string, string>();
     let heldTerminal: string | null = null;
     for (const name of ["first", "next", "held"]) {
       const cwd = join(root, name);
       mkdirSync(cwd);
       const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-inactive-${name}` });
       panes.push(created.root_pane.pane_id);
+      terminals.set(created.root_pane.pane_id, created.root_pane.terminal_id);
+      tabs.set(created.root_pane.pane_id, created.root_pane.tab_id);
       if (name === "held") heldTerminal = created.root_pane.terminal_id;
       workspaces.push(created.workspace.workspace_id);
     }
@@ -468,15 +523,27 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     };
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
-    const scenarios = ["mount", "switch", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
+    const scenarios = ["mount", "mount-optin", "hidden-mount", "legacy-mount", "mirrored-mount", "reconnect", "hidden-reconnect", "legacy-reconnect", "key-resume", "switch", "background-cache", "mirrored-cache", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes", "embedded"] as const;
     assert.ok(!process.env.CHAT_SIZE_CASE || scenarios.some((scenario) => scenario === process.env.CHAT_SIZE_CASE), "unknown CHAT_SIZE_CASE");
     for (const scenario of scenarios) {
       if (process.env.CHAT_SIZE_CASE && process.env.CHAT_SIZE_CASE !== scenario) continue;
+      if (scenario === "embedded") continue;
       let holder: PtySession | undefined;
       let page: Page | undefined;
       const heldPane = panes[2]!;
       try {
         const queueScenario = scenario.startsWith("queue-");
+        const fresh = ["mount", "mount-optin", "hidden-mount", "legacy-mount", "mirrored-mount", "key-resume"].includes(scenario);
+        const reconnect = scenario.endsWith("reconnect");
+        const legacy = scenario.startsWith("legacy-");
+        const watchFirst = fresh && !legacy && scenario !== "mirrored-mount";
+        const firstTerminal = terminals.get(first)!;
+        if (watchFirst) {
+          // A deliberately non-layout size exposes #902: a keep_size sidecar spawn would replace it.
+          await paneSendText(first, "stty cols 140 rows 40");
+          await paneSendKeys(first, ["Enter"]);
+          assert.equal(await shellSize(first)(), "40 140");
+        }
         if (queueScenario) {
           await herdrRpc("pane.report_agent", { pane_id: first, source: "manual", agent: "claude", state: "working" });
           await agentListed(origin, first);
@@ -501,13 +568,42 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           };
           listeners.add(check); check();
         });
-        const routed = queueScenario || scenario === "writes";
+        const routed = queueScenario || scenario === "writes" || scenario === "background-cache" || scenario === "mirrored-cache" || legacy;
         const recorded = async (): Promise<Frame[]> => {
           if (routed) return [...wire];
           assert.ok(page);
           return framesOf(page);
         };
         const setup = async (recording: Page): Promise<void> => {
+          if (scenario === "hidden-mount") await recording.route("**/api/machines", async (route) => {
+            const response = await route.fetch();
+            // App deliberately does not load while hidden. Hide after loading starts, but before
+            // the roster response can mount a pane; hasFocus alone must not permit an attach.
+            await recording.evaluate(() => {
+              Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+            });
+            await route.fulfill({ response });
+          });
+          if (scenario === "mirrored-mount") await recording.route("**/api/machines", async (route) => {
+            const response = await route.fetch();
+            const roster: { machines: Machine[] } = await response.json();
+            for (const machine of roster.machines) if (machine.herdr) {
+              machine.herdr.terminal_attach = false;
+              machine.herdr.terminal_mirror = true;
+            }
+            await route.fulfill({ response, json: roster });
+          });
+          if (scenario === "mirrored-mount") await recording.route("**/api/health", async (route) => {
+            const response = await route.fetch();
+            const health = await response.json();
+            health.herdr.terminal_attach = false;
+            health.herdr.terminal_mirror = true;
+            // The roster mounts the pane before health tells the client that it is mirrored.
+            await recording.locator(`.terminal-stack[data-pane-owner="${first}"]`).waitFor();
+            await route.fulfill({ response, json: health });
+          });
+          if (!routed) return;
           await recording.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
             injectOutput = () => {
               for (const data of ["\x1b[2J\x1b[H", "STALE-SUBSCRIPTION"]) {
@@ -517,8 +613,17 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
             const upstream = socket.connectToServer();
             upstream.onMessage((raw) => {
               const frame = JSON.parse(String(raw));
+              if (legacy && frame.type === "snapshot") {
+                frame.features = frame.features.filter((feature: string) => feature !== "watch");
+                raw = JSON.stringify(frame);
+              }
               if (frame.type === "submit-result") acceptedQueue = Boolean(frame.ok && frame.pending);
               record(raw, "in");
+              if (scenario === "mirrored-cache" && frame.type === "input-ready" && frame.pane_id === first) {
+                const geometry = JSON.stringify({ type: "pane-geometry", pane_id: first, cols: 80, rows: 24, fixed: true });
+                record(geometry, "in");
+                socket.send(geometry);
+              }
               if (holdOutput && frame.type === "pty-data") heldOutput.push(() => socket.send(raw));
               else socket.send(raw);
             });
@@ -548,8 +653,9 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           try { await ready.promise; } finally { clearTimeout(deadline); }
         }
         page = await openRecording(browser, contexts, origin, scenario === "held" ? heldPane : first,
-          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal", releasePaneAway: true },
-          scenario === "mount", queueScenario || scenario === "writes" ? setup : undefined);
+          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal",
+            releasePaneAway: scenario === "mount-optin" || (!fresh && !reconnect && scenario !== "switch") },
+          fresh, setup);
         if (scenario === "held") {
           await page.getByText("Another app has this pane open.", { exact: false }).waitFor();
           await pauseClock(page);
@@ -579,7 +685,77 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           console.log("PASS inactive attach lifecycle: held");
           continue;
         }
+        if (watchFirst) {
+          await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
+          await page.waitForFunction(() => (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.type === "watch-data"));
+          assert.deepEqual(await sent(page), [], "an out-of-use mount watches without ever acquiring an attach");
+          assert.equal(attachRunning(firstTerminal), false, "watching must not start a sidecar");
+          assert.equal(await shellSize(first)(), "40 140", "watching preserves the real size, not the layout rectangle");
+          if (scenario === "key-resume") {
+            await page.locator(".xterm-helper-textarea").dispatchEvent("keydown", { key: "Shift", code: "ShiftLeft", bubbles: true });
+            await attached(page);
+          } else {
+            // Reload while still away, including when hidden but hasFocus() returns true.
+            await page.reload();
+            await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
+            await page.waitForFunction(() => (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.type === "watch-data"));
+            assert.deepEqual(await sent(page), [], "a background reload never acquires an attach");
+            assert.equal(await shellSize(first)(), "40 140");
+            await page.evaluate(() => {
+              Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+            });
+            await attached(page);
+          }
+          assert.equal((await sent(page)).filter((frame) => frame.type === "attach").length, 1, "user activity acquires one attach");
+          console.log(`PASS inactive attach lifecycle: ${scenario}`);
+          continue;
+        }
         await (routed ? waitWire("in", "input-ready") : attached(page));
+        if (fresh) {
+          assert.deepEqual(await sent(page), [{ dir: "out", type: "attach", keep_size: true }], "legacy and mirrored servers keep their initial attach");
+          assert.equal((await recorded()).filter((frame) => frame.dir === "out" && frame.type === "watch").length, 0);
+          console.log(`PASS inactive attach lifecycle: ${scenario}`);
+          continue;
+        }
+        if (reconnect) {
+          // Keep the ordinary attach with the setting off, then lose the connection while away.
+          await page.evaluate((hidden) => {
+            Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => hidden ? "hidden" : "visible" });
+            window.dispatchEvent(new Event("blur"));
+          }, scenario === "hidden-reconnect");
+          const before = (await recorded()).length;
+          await page.evaluate(() => (window as unknown as { socket_: WebSocket }).socket_.close());
+          if (legacy) {
+            await waitWire("in", "input-ready", 2);
+            assert.deepEqual((await recorded()).slice(before).filter((frame) => frame.dir === "out" && frame.type === "attach"),
+              [{ dir: "out", type: "attach", keep_size: true }], "a legacy reconnect keeps today's attach behavior");
+          } else {
+            await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
+            await page.waitForFunction(() => (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.type === "watch-data"));
+            assert.deepEqual(await sent(page, before), [], "a background reconnect watches before any attach replay");
+          }
+          console.log(`PASS inactive attach lifecycle: ${scenario}`);
+          continue;
+        }
+        if (scenario === "mirrored-cache") {
+          // Given a mounted fixed-grid pane (the mirror's geometry contract), keep its subscription.
+          await waitWire("in", "pane-geometry");
+          await pauseClock(page);
+          const extra = await tabCreate({ workspaceId: workspaces[0]!, label: "Mirror cache" });
+          const before = wire.length;
+          // When it becomes cached, presentation effects must not release the mirror.
+          await page.locator(`[role="tab"][data-tab-id="${extra.tab.tab_id}"]`).evaluate((button: HTMLElement) => button.click());
+          await page.locator(`.pane-frame.is-hidden[data-layout-pane="${first}"]`).waitFor({ state: "attached" });
+          await page.clock.runFor(0);
+          await waitWire("in", "input-ready", 2);
+          // Then the other pane is attached but no detach was sent for the cached mirror.
+          assert.deepEqual(detachedPanes(wire.slice(before)), [], "caching a mirrored pane never releases it");
+          console.log("PASS inactive attach lifecycle: mirrored-cache");
+          continue;
+        }
         if (queueScenario) {
           await page.locator('.composer-status[data-status="working"]').waitFor();
           await page.locator(".composer-text").fill("lifecycle follow-up");
@@ -588,11 +764,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           await waitWire("out", "submit");
           if (scenario === "queue-switch") await page.locator('.pending-message[data-state="queued"]').waitFor();
         }
-        if (scenario === "mount") {
-          // No blur or visibility transition occurs after this out-of-use mount.
-          await waitDetach(page);
-          assert.deepEqual(await sent(page), [{ dir: "out", type: "attach", keep_size: true }]);
-        } else {
+        {
           // Freeze timers after the real first attach; only the release delay is advanced below.
           await pauseClock(page);
           if (scenario === "writes") {
@@ -609,20 +781,21 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               "a queued or unacknowledged follow-up holds its originating attach");
             if (scenario === "queue-switch") {
               await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
-              await waitWire("out", "attach", 2);
+              await waitWire("out", "watch");
               await page.locator(`.terminal-stack[data-pane-owner="${next}"]`).waitFor({ state: "attached" });
               await page.clock.runFor(0);
               assert.deepEqual(detachedPanes(await recorded()), [],
                 "navigation keeps pane A attached while its queued message waits");
               await assertSharedConnection(page);
-              await waitWire("in", "input-ready", 2);
-              await page.clock.runFor(900);
+              assert.equal(wire.filter((frame) => frame.dir === "out" && frame.type === "attach").length, 1,
+                "pane B watches immediately; pane A's queue is not inherited");
               await page.evaluate(() => {
                 Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
                 window.dispatchEvent(new Event("focus"));
                 Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
                 window.dispatchEvent(new Event("blur"));
               });
+              await waitWire("in", "input-ready", 2);
               await page.clock.runFor(100);
               assert.deepEqual(detachedPanes(await recorded()), [],
                 "pane A's retained attach cannot shorten pane B's new delay");
@@ -643,6 +816,44 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               }
               await waitWire("out", "detach");
             }
+          } else if (scenario === "background-cache") {
+            // Given an away-released pane, navigation must not change its release reason.
+            await page.clock.runFor(1000);
+            await waitWire("out", "watch");
+            const viewOnly = page.locator(".pane-frame.is-current .terminal-banner", { hasText: "View only while you use another window" });
+            await viewOnly.waitFor();
+            const extra = await tabCreate({ workspaceId: workspaces[0]!, label: "Background cache" });
+            tabs.set(extra.root_pane.pane_id, extra.tab.tab_id);
+            const pick = async (pane: string): Promise<void> => {
+              assert.ok(page);
+              const tab = tabs.get(pane);
+              assert.ok(tab);
+              await page.locator(`[role="tab"][data-tab-id="${tab}"]`).evaluate((button: HTMLElement) => button.click());
+              await page.locator(`.pane-frame.is-current[data-layout-pane="${pane}"]`).waitFor();
+              await page.clock.runFor(0);
+            };
+            const before = (await recorded()).length;
+            // When A -> B -> A happens without window focus, both panes remain observers.
+            await pick(extra.root_pane.pane_id);
+            await waitWire("out", "unwatch");
+            await waitWire("out", "watch", 2);
+            await pick(first);
+            await waitWire("out", "unwatch", 2);
+            assert.equal(await page.evaluate(() => document.hasFocus()), false);
+            assert.deepEqual((await recorded()).slice(before).filter((frame) => frame.dir === "out" && (frame.type === "attach" || frame.type === "resize")), [],
+              "an away-released pane returned from cache in the background stays watch-only");
+            await waitWire("out", "watch", 3);
+            await viewOnly.waitFor();
+            // Then real focus resumes the presented pane, not its cached sibling.
+            const returning = (await recorded()).length;
+            await page.evaluate(() => {
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+            });
+            await waitWire("in", "input-ready", 2);
+            assert.equal((await recorded()).slice(returning).filter((frame) => frame.dir === "out" && frame.type === "attach").length, 1,
+              "focus attaches only the presented pane");
+            await viewOnly.waitFor({ state: "hidden" });
           } else if (scenario === "writes") {
             await page.clock.runFor(999);
             await page.evaluate(() => {
@@ -680,14 +891,13 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
             const before = (await framesOf(page)).length;
             // Programmatic click deliberately does not focus the window.
             await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
-            await attached(page, 2);
-            assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }]);
+            await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
+            assert.deepEqual(await sent(page, before), []);
             await waitPaneDetach(page, first);
             assert.deepEqual(detachedPanes(await framesOf(page)), [first], "navigation releases only the old pane's lease");
             await assertSharedConnection(page);
             await page.clock.runFor(1000);
-            await waitDetach(page, 2); // the new pane still releases after its own full delay
-            assert.deepEqual(detachedPanes(await framesOf(page)), [first, next], "the new pane releases its own lease after the delay");
+            assert.deepEqual(detachedPanes(await framesOf(page)), [first], "the new pane never acquired a lease to release");
             await assertSharedConnection(page);
           } else if (scenario === "resume") {
             await page.clock.runFor(1000);
@@ -749,6 +959,47 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
       }
     }
     assert.deepEqual(failures, [], "inactive attach lifecycle scenarios");
+    if (!process.env.CHAT_SIZE_CASE || process.env.CHAT_SIZE_CASE === "embedded") {
+      // Exercise the demo's embedded client without weakening the real app's anti-framing CSP.
+      const context = await browser.newContext();
+      contexts.push(context);
+      // An intercepted iframe document has no network address space until Chrome grants it.
+      await context.grantPermissions(["local-network-access"], { origin });
+      await context.addInitScript(() => {
+        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal" }));
+        Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+      });
+      const page = await context.newPage();
+      const wire: string[] = [];
+      let attachedFrame: () => void = () => {};
+      const inputReady = new Promise<void>((resolve) => { attachedFrame = resolve; });
+      page.on("websocket", (socket) => {
+        socket.on("framesent", ({ payload }) => wire.push(JSON.parse(String(payload)).type));
+        socket.on("framereceived", ({ payload }) => {
+          if (JSON.parse(String(payload)).type === "input-ready") attachedFrame();
+        });
+      });
+      await page.route("**/embed-test", (route) => route.fulfill({ contentType: "text/html",
+        body: `<iframe style="width:1000px;height:700px" src="/?pane=${encodeURIComponent(first)}"></iframe>` }));
+      await page.route(`${origin}/?pane=${encodeURIComponent(first)}`, async (route) => {
+        const response = await route.fetch();
+        const headers = response.headers();
+        const policy = headers["content-security-policy"];
+        assert.ok(policy);
+        await route.fulfill({ response, headers: { ...headers,
+          "content-security-policy": policy.replace("frame-ancestors 'none'", "frame-ancestors 'self'") } });
+      });
+      await page.goto(`${origin}/embed-test`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([inputReady, new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("embedded pane never attached")), 15_000);
+        })]);
+        assert.equal(wire.filter((type) => type === "attach").length, 1);
+        assert.equal(wire.includes("watch"), false, "the embedded page keeps its attach without document focus");
+        console.log("PASS inactive attach lifecycle: embedded");
+      } finally { clearTimeout(timer); await context.close(); }
+    }
   } finally {
     for (const context of contexts) await context.close().catch(() => undefined);
     for (const id of workspaces) await workspaceClose(id).catch(() => undefined);
@@ -763,7 +1014,7 @@ if (import.meta.main) {
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
+    browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
     const origin = `http://127.0.0.1:${server.port}`;
     if (process.env.CHAT_SIZE_CASE === "reclaim") await checkFocusedWindowReclaimsTerminalSize(browser, origin);
     else if (process.env.CHAT_SIZE_CASE) await checkInactiveAttachLifecycle(browser, origin);

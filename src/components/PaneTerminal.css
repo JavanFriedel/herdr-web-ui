@@ -54,7 +54,6 @@
    positioned against THIS, never against the stack — the composer and key bar
    below keep their rows no matter which lens is on */
 .terminal-surface {
-  --terminal-history-gutter: var(--space-3);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -363,8 +362,3 @@
 .terminal-stack.is-chat .pane-terminal {
   content-visibility: hidden;
 }
-
-.pane-terminal.has-viewport-tools { width: calc(100% - var(--terminal-history-gutter)); }
-/* A touch screen keeps every column: its history bar floats over the right edge, and only while
-   the view is scrolled back (TerminalViewportTools.css) */
-@media (pointer: coarse) { .pane-terminal.has-viewport-tools { width: 100%; } }
