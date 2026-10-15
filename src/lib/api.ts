@@ -767,7 +767,7 @@ export async function sendTestPush(endpoint: string): Promise<void> {
   await sendJson("/api/push/test", "POST", { endpoint });
 }
 
-export function fetchBridgeHealth(): Promise<BridgeHealth> { return getJson("/api/health?scope=bridge"); }
+export function fetchBridgeHealth(signal?: AbortSignal): Promise<BridgeHealth> { return getJson("/api/health?scope=bridge", signal ? { signal } : undefined); }
 export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
   const response = await fetch("/api/machines", { signal });
   if (!response.ok) throw await errorFrom("/api/machines", response);

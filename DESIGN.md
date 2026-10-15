@@ -967,6 +967,13 @@ One set for both themes: the card is island black wherever it shows.
   `--danger-tint`) when it needs the network, the server or a PC; the icon steps round while it
   waits. Live draws nothing. In the drawer layout (`max-width: 768px`) it replaces the header's
   chip and the herdr offline pill, which stay in the document and draw nothing.
+- Before the server's first answer the shell draws without a terminal, and the boot screen
+  (`BootScreen.tsx`) stands in the pane's place: "Connecting to herdr web ui…", then after 3 s
+  how long it has waited. The health question is dropped after 8 s; a failure turns it into
+  **Can't reach herdr web ui** (or **No network**) with the browser's own words for the failure,
+  the address asked, a hint to check the device's network or VPN, a countdown to the next try and
+  Retry. The icon is `--status-blocked`, as a pane herdr could not restore. The page may come from
+  the service worker's saved shell, so this screen never waits silently.
 
 ### Chat turn (`.chat-turn`)
 - Native conversation rows use LegendList 3.3.5, with the chat view as the single
