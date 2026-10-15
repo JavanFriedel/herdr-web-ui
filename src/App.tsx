@@ -233,6 +233,8 @@ export function App() {
     pairDevice(pairCode, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => loadHealth()).catch(() => { /* the gate, if any, reports it */ });
   }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
   const updates = useUpdates(locked === false);
+  // the sidebar's foot holds the update line; its toggle carries a dot while the line asks for something
+  const updateDot = updates.needsReload ? "warning" : updates.status?.available || updates.status?.phase === "building" || updates.status?.phase === "restarting" ? "info" : null;
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (initialLink?.pane) return initialLink.pane;
     // a link to a workspace opens the pane its row opens, once the roster is in (below)
@@ -1399,12 +1401,14 @@ export function App() {
           <button
             type="button"
             className="icon-button drawer-toggle"
-            aria-label={t(drawerOpen ? "Close workspace list" : "Open workspace list")}
+            aria-label={drawerOpen ? t("Close workspace list") : updateDot ? t("Open workspace list · an update is waiting") : t("Open workspace list")}
             aria-expanded={drawerOpen}
             aria-controls="workspace-drawer"
             onClick={() => setDrawerOpen((open) => !open)}
           >
             {drawerOpen ? <X /> : <Menu />}
+            {/* the update line lives at the foot of the sidebar: a closed drawer still says it is there */}
+            {!drawerOpen && updateDot && <span className={`drawer-toggle-dot is-${updateDot}`} aria-hidden="true" />}
           </button>
           <button
             type="button"
@@ -1415,6 +1419,7 @@ export function App() {
             onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
           >
             <PanelLeft />
+            {sidebarCollapsed && updateDot && <span className={`drawer-toggle-dot is-${updateDot}`} aria-hidden="true" />}
           </button>
           <button type="button" className="icon-button palette-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => openPalette()}>
             <Search />
@@ -1517,7 +1522,7 @@ export function App() {
           {/* a sidebar that cannot be drawn leaves the panes working */}
           <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
             <CrashProbe region="sidebar" />
-            <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+            <MachineSidebar notice={<UpdateNotice updates={updates} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
@@ -1529,7 +1534,6 @@ export function App() {
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
         <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
         {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
-        <UpdateNotice updates={updates} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}

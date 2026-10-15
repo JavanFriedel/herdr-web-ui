@@ -1334,6 +1334,27 @@ button {
   display: none;
 }
 
+/* the update line waits at the sidebar's foot (UpdateNotice): its toggles carry a dot, red when
+   the app must be reloaded, amber when an update is on offer or installing */
+.drawer-toggle,
+.sidebar-toggle {
+  position: relative;
+}
+
+.drawer-toggle-dot {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  box-shadow: 0 0 0 calc(var(--hairline) * 2) var(--bg-panel);
+  pointer-events: none;
+}
+
+.drawer-toggle-dot.is-warning { background: var(--status-blocked); }
+
 /* text buttons: .btn (neutral), .btn-primary, .btn-danger, .btn-ghost */
 .btn {
   display: inline-flex;

@@ -176,6 +176,7 @@ export const TR: Record<string, string> = {
   "Connecting to herdr web ui…": "herdr web ui uygulamasına bağlanılıyor…",
   "Close workspace list": "Çalışma alanı listesini kapat",
   "Open workspace list": "Çalışma alanı listesini aç",
+  "Open workspace list · an update is waiting": "Çalışma alanı listesini aç · bir güncelleme bekliyor",
   "Show workspace list": "Çalışma alanı listesini göster",
   "Hide workspace list": "Çalışma alanı listesini gizle",
   "Pane closed": "Bölme kapandı",

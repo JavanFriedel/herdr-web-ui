@@ -187,6 +187,7 @@ export const KO: Record<string, string> = {
   "Connecting to herdr web ui…": "herdr web ui에 연결하는 중…",
   "Close workspace list": "워크스페이스 목록 닫기",
   "Open workspace list": "워크스페이스 목록 열기",
+  "Open workspace list · an update is waiting": "작업 공간 목록 열기 · 업데이트 대기 중",
   "Show workspace list": "워크스페이스 목록 보이기",
   "Hide workspace list": "워크스페이스 목록 숨기기",
   "Pane closed": "창이 닫혔습니다",
