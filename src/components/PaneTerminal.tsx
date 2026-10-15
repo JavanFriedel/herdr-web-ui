@@ -9,6 +9,7 @@ import "./PaneTerminal.css";
 import { HerdrSocket, type SubmitDelivery, type SubmitResult } from "../lib/ws.ts";
 import { MachineSession } from "../lib/machineSession.ts";
 import { useMachineSessions } from "../lib/machineSessionContext.tsx";
+import { applyStreamFrame, type LiveReply } from "../lib/conversationStream.ts";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { PaneCachedContext, PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
@@ -407,6 +408,8 @@ export function PaneTerminal({
   // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
   const [chatInvalidation, setChatInvalidation] = useState(0);
+  /** the reply the pane's agent is writing, streamed before its transcript holds it (lib/conversationStream.ts) */
+  const [liveReply, setLiveReply] = useState<{ pane: string; reply: LiveReply } | null>(null);
   // an older bridge pushes no transcript changes: the chat reads at the former 2s cadence
   const [conversationPushes, setConversationPushes] = useState(false);
   const onConversationWatch = useCallback((pane: string, enabled: boolean) => {
@@ -1149,6 +1152,15 @@ export function PaneTerminal({
       if (message.type === "conversation-changed" && message.pane_id === paneRef.current
         && chatViewRef.current && document.visibilityState !== "hidden") {
         setChatInvalidation((current) => current + 1);
+      }
+      if (message.type === "conversation-stream" && message.pane_id === paneRef.current) {
+        const pane = message.pane_id;
+        setLiveReply((current) => {
+          const reply = applyStreamFrame(current?.pane === pane ? current.reply : null, message);
+          return reply === null ? null : { pane, reply };
+        });
+        // the reply ended: the store has its message, so the chat reads it now, not at the next push's cadence
+        if ("done" in message) setChatRefresh((current) => current + 1);
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
@@ -2926,6 +2938,7 @@ export function PaneTerminal({
             pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}
+            liveReply={liveReply?.pane === paneId ? liveReply.reply : null}
             onConversationWatch={onConversationWatch}
             conversationPushes={conversationPushes && !released}
             onTerminalOutput={onTerminalOutput}

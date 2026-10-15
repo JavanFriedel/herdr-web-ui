@@ -13,6 +13,7 @@ import "./ChatTimeline.css";
 import { AgentMark } from "./AgentMark.tsx";
 import { AnimatedHeight } from "./AnimatedHeight.tsx";
 import { Markdown, ReservedImage } from "./Markdown.tsx";
+import { provisionalReply, type LiveReply } from "../lib/conversationStream.ts";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
@@ -108,6 +109,8 @@ export interface ChatViewProps {
   onConversationWatch?: (paneId: string, enabled: boolean) => void;
   /** the bridge pushes this pane's transcript changes; without, the chat reads every 2s as before */
   conversationPushes?: boolean;
+  /** the reply the agent is writing, streamed before the transcript holds it: shown after the last turn until a read brings it */
+  liveReply?: LiveReply | null;
   /** while the chat shows herdr's scrollback, the pane's terminal output invalidates it */
   onTerminalOutput?: (listener: (() => void) | null) => void;
   /** bumped when a composer message goes out, before the transcript holds it */
@@ -737,7 +740,7 @@ function TerminalFallback({ paneId, visible }: { paneId: string; visible: boolea
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, liveReply = null, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, peekPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -1341,6 +1344,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
     const sent = last.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n");
     return sameMessage(sent, restored) ? turns.slice(0, -1) : turns;
   }, [turns, restored]);
+  const provisional = useMemo(() => state.source === "conversation" ? provisionalReply(liveReply, turns) : null, [state.source, liveReply, turns]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
   // the running turn began with the user's last message: the status line counts from it
@@ -1453,6 +1457,8 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
       {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
+      {/* the reply as it streams; the read after its end replaces it with the transcript's turn */}
+      {provisional !== null && <article className="chat-turn chat-turn-agent is-provisional" aria-busy={!liveReply?.done}><Markdown skills={skillMatcher}>{provisional}</Markdown></article>}
       {/* A native turn's activity, where no open work block says it: before the turn has an assistant
           or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
       {connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && <ChatActivityLine thinking={activity === "thinking"} since={turnStartedAt} />}

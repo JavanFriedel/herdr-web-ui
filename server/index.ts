@@ -28,6 +28,7 @@ import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { handleOpencodeModelRequest } from "./opencode-model.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import { ConversationMonitor } from "./conversation-monitor.ts";
+import { OpencodeStream, readOpencodeService, type OpencodeService } from "./opencode-stream.ts";
 import { omoPanes } from "./omo.ts";
 import { createGjcStatus, gjcPanes, readOmoSnapshot, reconcileProviderStatus } from "./gjc-status.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
@@ -233,7 +234,7 @@ const RESTORED_CLEAR_GAP_MS = 200;
 const RESTORED_CLEAR_SETTLE_MS = 300;
 /** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping", "conversation-stream"];
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -476,6 +477,8 @@ export function createServer(
     grokHome?: string;
     /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
     opencodeDb?: string;
+    /** OpenCode's local service for the live reply (opencode-stream.ts); a server given its own store never asks the PC's */
+    opencodeService?: () => OpencodeService | null;
     /** OpenCode's authenticated API CLI; tests provide a fixture executable, never the user's service. */
     opencodeBin?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
@@ -567,19 +570,26 @@ export function createServer(
   // the last input_draft refusal per pane: its named draft (Clear it and send), or none (Send anyway)
   const draftConfirmations = new WeakMap<Client, Map<string, { draft: string | null; identity: PendingIdentity; box?: string | null }>>();
   let stopped = false;
+  /** the connections whose chat on this pane asks for its conversation */
+  function conversationClients(paneId: string): Client[] {
+    return [...clients].filter((client) => !client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId));
+  }
   const conversations = new ConversationMonitor((paneId, signature) => {
-    for (const client of clients) {
-      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
-        send(client, { type: "conversation-changed", pane_id: paneId, signature });
-      }
-    }
+    for (const client of conversationClients(paneId)) send(client, { type: "conversation-changed", pane_id: paneId, signature });
   }, options.codexHome, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
+  // the reply an OpenCode pane's agent is writing, before its store holds it; a step that ended
+  // has the store looked at now, not at the next poll
+  const opencodeStream = new OpencodeStream((paneId, frame) => {
+    for (const client of conversationClients(paneId)) send(client, { type: "conversation-stream", pane_id: paneId, ...frame });
+  }, (paneId) => conversations.check(paneId), options.opencodeService ?? (options.opencodeDb === undefined ? readOpencodeService : () => null));
+  conversations.onResolved = (paneId, transcript) => {
+    opencodeStream.watch(paneId, transcript?.source === "opencode-transcript" ? transcript.session : null);
+  };
 
   function releaseConversation(paneId: string): void {
-    for (const client of clients) {
-      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
-    }
+    if (conversationClients(paneId).length > 0) return;
     conversations.unwatch(paneId);
+    opencodeStream.unwatch(paneId);
   }
   /** each pane's input while a composer message is in flight, one step after another */
   const paneQueues = new Map<string, Promise<unknown>>();
@@ -3705,6 +3715,7 @@ export function createServer(
       stopped = true;
       settlePortalStartup({ ok: false, error: new Error("Server stopped before Portal startup cleanup completed") });
       conversations.stop();
+      opencodeStream.stop();
       clearInterval(outputTimer);
       collector.stop();
       stopNotificationModes?.();

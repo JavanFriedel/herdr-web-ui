@@ -30,6 +30,8 @@ export class ConversationMonitor {
   private timer?: ReturnType<typeof setInterval>;
   private snapshot: Promise<SessionSnapshot> | null = null;
   private stopped = false;
+  /** each resolution of a watched pane's store (null: none now), for what follows a session live (opencode-stream.ts) */
+  onResolved?: (paneId: string, transcript: NativeTranscript | null) => void;
 
   constructor(
     private readonly changed: (paneId: string, signature: string) => void,
@@ -58,6 +60,12 @@ export class ConversationMonitor {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+  }
+
+  /** Look at a watched pane's store now, not at the next poll: something says it changed. */
+  check(paneId: string): void {
+    const state = this.panes.get(paneId);
+    if (state) this.read(paneId, state);
   }
 
   stop(): void {
@@ -111,11 +119,13 @@ export class ConversationMonitor {
       const transcript = await paneTranscript(paneId, this.codexHome, snapshot, this.devinDbPath, this.opencodeDb, this.hermesHome, this.grokHome);
       if (this.panes.get(paneId) !== state) return;
       state.transcript = transcript;
+      this.onResolved?.(paneId, transcript);
       present = this.read(paneId, state);
     } catch (error) {
       if (this.panes.get(paneId) !== state) return;
       if (error instanceof ConversationUnavailable) {
         state.transcript = null;
+        this.onResolved?.(paneId, null);
         const pending = error instanceof ConversationNotStarted ? `:${error.sessionId}` : "";
         this.publish(paneId, state, `unavailable:${error.message}${pending}`);
       } else {
