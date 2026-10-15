@@ -51,10 +51,13 @@ try {
         if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
       }
       await group.waitFor({ state: "attached" });
-      await group.getByRole("button", { name: "Manage Build machine" }).click();
-      await group.getByText("Managed by herdr. Rename, disable or remove it there.").waitFor();
-      assert.equal(await group.getByRole("button", { name: "Remove PC", exact: true }).count(), 0);
-      assert.equal(await group.getByRole("button", { name: "Rename", exact: true }).count(), 0);
+      // the PC's details (a popover, a sheet on a phone) say herdr manages it and offer no rename or removal
+      const menuItem = (name: string) => page.locator('[role="menuitem"], .row-sheet-item', { hasText: name });
+      await group.getByRole("button", { name: "Details for Build machine" }).click();
+      await page.getByText("Managed by herdr. Rename, disable or remove it there.").waitFor();
+      assert.equal(await menuItem("Remove PC").count(), 0);
+      assert.equal(await menuItem("Rename…").count(), 0);
+      await page.keyboard.press("Escape");
       assert.equal(submitted.length, 0);
       if (evidence) await page.screenshot({ path: join(evidence, phone ? "phone.png" : "desktop.png"), fullPage: true });
       await group.getByRole("button", { name: "Connect", exact: true }).click();
@@ -83,8 +86,11 @@ try {
       profiles = [{ ...profile, label: "Renamed machine", enabled: false }];
       const renamed = page.getByRole("region", { name: "PC Renamed machine", exact: true });
       await renamed.waitFor({ state: "attached", timeout: 12_000 });
-      await renamed.getByRole("button", { name: "Reconnect / setup", exact: true }).waitFor({ state: "attached" });
-      assert.equal(await renamed.getByRole("button", { name: "Reconnect / setup", exact: true }).isDisabled(), true);
+      // a disabled PC's details offer no reconnect
+      await renamed.getByRole("button", { name: "Details for Renamed machine" }).click();
+      await page.getByText("Managed by herdr. Rename, disable or remove it there.").waitFor();
+      assert.equal(await menuItem("Reconnect / setup").count(), 0);
+      await page.keyboard.press("Escape");
       profiles = [];
       await renamed.waitFor({ state: "detached", timeout: 12_000 });
       assert.deepEqual(errors, []);

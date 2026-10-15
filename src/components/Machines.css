@@ -29,10 +29,10 @@
   pointer-events: none;
 }
 
-.machine-list > .tree-state { padding-left: calc(var(--side-gutter) + var(--side-box)); }
+.machine-list > .tree-state { padding-left: calc(var(--side-gutter) + var(--side-fold)); }
 
 .machine-group {
-  --machine-indent: calc(var(--side-gutter) + var(--side-box));
+  --machine-indent: calc(var(--side-gutter) + var(--side-fold));
 }
 
 .machine-group + .machine-group { margin-top: var(--space-4); }
@@ -43,16 +43,41 @@
   padding: 0 var(--side-gutter);
 }
 
+/* the PC's name is a button: it opens the PC's details sheet (state, address, herdr, actions) */
 .machine-title {
   display: flex;
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
   min-height: var(--side-row);
+  margin: 0;
+  padding: 0 var(--space-2) 0 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
   color: var(--text-strong);
+  font: inherit;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   line-height: var(--lh-tight);
+  text-align: left;
+  cursor: pointer;
+}
+
+.machine-title:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
+
+@media (hover: hover) {
+  .machine-title:hover { background: var(--side-hover); }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .machine-title:active { background: var(--side-hover); }
+}
+
+/* the monitor sits in the rows' fold gutter, so the name starts where their marks do */
+.machine-title > .sidebar-mark {
+  flex-basis: var(--side-fold);
+  width: var(--side-fold);
 }
 
 .machine-name {
@@ -91,37 +116,7 @@
 /* the + fills the rows' status cell */
 .machine-new { width: var(--side-box); }
 
-/* An SSH PC's manage button takes no room until its header is hovered or focused, its panel is
-   open or the PC is not connected. It stays in the focus order. */
-.machine-manage {
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
-}
-
-.machine-header:focus-within > .machine-manage,
-.machine-manage[aria-expanded="true"],
-.machine-group.is-offline .machine-manage {
-  width: var(--side-action);
-  overflow: visible;
-  opacity: 1;
-}
-
-@media (hover: hover) {
-  .machine-header:hover > .machine-manage {
-    width: var(--side-action);
-    overflow: visible;
-    opacity: 1;
-  }
-}
-
 @media (pointer: coarse) {
-  .machine-manage {
-    width: var(--side-action);
-    overflow: visible;
-    opacity: 1;
-  }
-
   .machine-new {
     width: var(--touch-target);
     margin-right: calc((var(--side-box) - var(--touch-target)) / 2);
@@ -171,6 +166,41 @@
   background: var(--bg-elevated);
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-md);
+}
+
+/* the details sheet's head: the PC, its state in words, then where it is and what it runs */
+.machine-sheet-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+}
+
+.machine-sheet-name {
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+
+.machine-sheet-state { color: var(--text-dim); font-weight: var(--fw-medium); }
+.machine-sheet-state.is-connected { color: var(--status-done); }
+.machine-sheet-state.is-error,
+.machine-sheet-state.is-disconnected { color: var(--status-blocked); }
+.machine-sheet-state.is-connecting,
+.machine-sheet-state.is-reconnecting { color: var(--status-working); }
+.machine-sheet-state.is-setup { color: var(--notice); }
+
+.machine-sheet-line {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.machine-sheet-error { color: var(--status-blocked); }
+
+.machine-controls .machine-control-buttons {
+  justify-content: flex-end;
 }
 
 .machine-controls form,

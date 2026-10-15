@@ -21,7 +21,7 @@ and Agents are independent lists, as in herdr's Spaces and Agents panels; tab an
 stays over the terminal and in the palette. Sections are parted by space and a dim head, never by
 a rule; the Agents list's workspace cards are an edge around rows, not a line between sections.
 Hover and selection are one neutral fill at two strengths. Brand marks are the only color
-there that is not a state, and a ready row draws no state at all. Amber connects focus, the chosen
+there that is not a state, and a ready agent is a quiet dim ring. Amber connects focus, the chosen
 lens glyph and the terminal cursor.
 
 ## 2. Color
@@ -225,8 +225,8 @@ colors and the terminal (xterm reads `terminalTheme()`) keep the palette's value
   keeps the same split, accent (blue) marks and primary (white, or ink on paper) acts, and there
   agent states never use blue.
 - Agent state has a written label as well as color. The sidebar's compact glyphs keep their labels
-  in tooltips and screen-reader text; other surfaces draw the words. In the sidebar ready and
-  unknown draw no glyph and keep their label for assistive tech; elsewhere unknown uses dim text
+  in tooltips and screen-reader text; other surfaces draw the words. In the sidebar unknown draws
+  no glyph and keeps its label for assistive tech; elsewhere unknown uses dim text
   and a dashed badge edge.
 - Tints are named tokens; components do not introduce ad hoc translucent state colors.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
@@ -598,8 +598,9 @@ One set for both themes: the card is island black wherever it shows.
   an answer is the one filled glyph, a filled message circle in `--status-blocked`; finished and
   not yet looked at is an 8px dot in `--status-done`, as an unread mark is; working is the same
   dot in `--status-working` that breathes (`--dur-breathe`); BG is an 8px ring in
-  `--status-working` held still, since nothing about it moves until its work ends; ready and
-  unknown draw nothing. A pane herdr could not restore
+  `--status-working` held still, since nothing about it moves until its work ends; ready is the
+  same ring in the idle color at 70% opacity, so an agent at rest still reads as an agent; unknown
+  draws nothing. A pane herdr could not restore
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
   are a quiet count beside it (`.background-count`), not a badge.
@@ -633,12 +634,19 @@ One set for both themes: the card is island black wherever it shows.
   Clicking its name opens the
   selected pane in that workspace, else the last viewed pane, else the pane herdr has focused,
   else its first pane. Tabs are selected from the tab strip; panes are selected on the canvas or from the command palette.
-- A top-level workspace row starts with a folder glyph in the grid's leading cell, under the
-  PC's monitor; the row's mark and name follow it. For a repository workspace with linked
-  worktree workspaces that folder is the group's fold, a button (`.workspace-toggle`) in
-  `--text`: open while the worktrees show, closed while they are folded, when a dim `+N` after
-  the name counts the checkouts put away. For any other workspace it is a dim glyph and no
-  control. Worktree rows have no folder: they sit one cell in, their marks under the parent's.
+- A top-level workspace row starts with a `--space-6` fold gutter (`--side-fold`), under the
+  PC's monitor; the row's mark and name follow it, so every top-level mark lines up. For a
+  repository workspace with linked worktree workspaces the gutter holds the group's fold, a dim
+  chevron button (`.workspace-toggle`): down while the worktrees show, right while they are
+  folded, when a dim `+N` after the name counts the checkouts put away. For any other workspace
+  it is empty room. Worktree rows sit `--space-3` in from the parent's mark, and a
+  `--border-strong` hairline guide drops from the chevron beside them. There is one leading
+  icon per row: the agent's mark, else the project's favicon (top-level only), the branch glyph
+  for a linked worktree or the terminal glyph.
+- A PC's name in its header is a button that opens the PC's details (`RowMenu`: a popover, the
+  sheet on a phone): its state in words and color, its SSH address, its herdr version and its
+  last error, then Reconnect / setup, Update bridge…, Connect or Disconnect, Rename… and
+  Remove PC (which confirms in a dialog). The host's details offer Add PC.
   Worktree folds are remembered at
   `herdr-web-ui:worktree-group-collapsed:<machineId>:<repo_key>`; a folded group keeps the selected
   child visible, and status snapshots preserve a deliberate fold.
