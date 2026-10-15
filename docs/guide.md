@@ -104,6 +104,11 @@ side. **Unzoom pane** stays in the phone's tab menu when the tab is zoomed, so i
 remain reachable. **Zoom pane** makes a small pane fill the screen, and **Unzoom pane** restores the split. A split opens the new pane.
 Each pane keeps its own Chat/Terminal view and unsent draft.
 
+To see two panes side by side, drag a workspace row, an **Agents** row, a tab, a pane's title or
+a half's bar onto the left or right half of the pane area. A pick in the sidebar or the **Agents**
+list then opens in the active half only, and the focus stays there. Both halves can show the same
+tab, and you type in whichever half is active; the other half shows that tab at the active half's size.
+
 
 **3. Take it with you.** Scan the installer's QR code with a phone signed in to the same Tailscale account, then install the app from the browser. See [On your phone](#on-your-phone).
 
