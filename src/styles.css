@@ -1182,6 +1182,22 @@ button {
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
+/* In the drawer layout the connection strip under the header (ConnectionStrip.tsx) says it in
+   words, so the header gives the title its room: the pill and the herdr offline pill stay in the
+   document (screen readers, the browser scripts) and draw nothing. */
+@media (max-width: 768px) {
+  .header-meta .conn-reconnecting,
+  .header-meta .pill-offline {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
 /* A narrow window: the chip keeps its pulsing dot and gives its word's room to the pane title.
    The word stays for a screen reader and in the chip's title. */
 @media (max-width: 900px) {

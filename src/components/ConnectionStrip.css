@@ -1,0 +1,62 @@
+/* One line under the header while what is on screen is not live (ConnectionStrip.tsx): amber
+   while it is coming back by itself, red when it needs the network, the server or a PC. */
+.connection-strip {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-4);
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--status-working-tint);
+  color: var(--status-working);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+}
+
+.connection-strip.is-danger {
+  background: var(--danger-tint);
+  color: var(--danger-text);
+}
+
+.connection-strip-icon {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+/* held still between eight steps, as every endless animation here is (src/motion.test.ts) */
+.connection-strip-icon.is-spinning {
+  animation: connection-strip-spin var(--dur-pulse) steps(8) infinite;
+}
+
+@keyframes connection-strip-spin {
+  to { transform: rotate(360deg); }
+}
+
+.connection-strip-text {
+  flex: none;
+  font-weight: var(--fw-semibold);
+}
+
+.connection-strip-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-strip-action {
+  flex: none;
+  min-height: var(--chip-h);
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  color: inherit;
+  font-size: var(--fs-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-strip-icon.is-spinning { animation: none; }
+}
