@@ -190,8 +190,21 @@ export function maxRuns(env: Record<string, string | undefined>, cores = availab
 /** What a slot's holder says: its pid (NaN when what listens there is no run) and its checkout, when it names one. */
 export type Holder = { heldBy: number; checkout?: string };
 
+/** WSL/firewalls can drop a connect to an unused port instead of refusing it.
+ * Only an exclusive bind proves that no listener owns the port; a timeout alone never does. */
+function probeUnusedPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer((socket) => socket.destroy());
+    probe.once("error", () => resolve(false));
+    probe.listen({ port, host: "127.0.0.1", exclusive: true }, () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
 /** Asks the holder of a port who it is; null when nothing listens there. */
-function ask(port: number): Promise<Holder | null> {
+async function ask(port: number): Promise<Holder | null> {
+  if (await probeUnusedPort(port)) return null;
   return new Promise((resolve) => {
     let said = "";
     let refused = false;

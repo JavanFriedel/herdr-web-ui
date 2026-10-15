@@ -114,6 +114,13 @@ describe("lock", () => {
     }
   });
 
+  it("still refuses a silent listener instead of assuming a connection timeout means a free port", async () => {
+    const other = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    try {
+      expect(await lock(other.port, 222)).toEqual({ heldBy: Number.NaN });
+    } finally { other.stop(true); }
+  });
+
   it("is free again once the run that held it is killed", async () => {
     const port = await freePort();
     const holder = Bun.spawn([process.execPath, "-e", `const { lock } = await import(${JSON.stringify(fileURLToPath(new URL("./check.ts", import.meta.url)))}); await lock(${port}, 111, "/a"); console.log("HELD"); setInterval(() => {}, 1000);`], { stdout: "pipe" });

@@ -51,6 +51,8 @@ checkout. (`check run` runs only its named command unless `--build` is supplied.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.
+An unused slot is proved by an exclusive loopback bind: WSL and firewalls may time out a
+connection to a free port instead of refusing it. A silent occupied port still blocks admission.
 
 `check concurrent` runs the same steps as `check full`: workflow syntax, generated types,
 typecheck and build first, then the unit tests side by side with both lanes instead of before them.
