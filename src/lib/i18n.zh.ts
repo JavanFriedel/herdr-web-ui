@@ -191,6 +191,7 @@ export const ZH: Record<string, string> = {
   "Connecting to herdr web ui…": "正在连接 herdr web ui…",
   "Close workspace list": "关闭工作区列表",
   "Open workspace list": "打开工作区列表",
+  "Open workspace list · an update is waiting": "打开工作区列表 · 有更新待处理",
   "Show workspace list": "显示工作区列表",
   "Hide workspace list": "隐藏工作区列表",
   "Pane closed": "窗格已关闭",

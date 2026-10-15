@@ -189,6 +189,7 @@ export const JA: Record<string, string> = {
   "Connecting to herdr web ui…": "herdr web ui に接続しています…",
   "Close workspace list": "ワークスペース一覧を閉じる",
   "Open workspace list": "ワークスペース一覧を開く",
+  "Open workspace list · an update is waiting": "ワークスペース一覧を開く · 更新が待機中",
   "Show workspace list": "ワークスペース一覧を表示",
   "Hide workspace list": "ワークスペース一覧を非表示",
   "Pane closed": "ペインは閉じられました",

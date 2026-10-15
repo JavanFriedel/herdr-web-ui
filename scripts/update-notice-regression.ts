@@ -50,22 +50,21 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await page.goto(origin);
     const notice = page.locator(".update-notice").filter({ hasText: /herdr web ui|update|Step|Starting/i }).first();
     const fits = async (label: string) => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${label}: nothing overflows sideways`);
-    // a release's line is one row on a phone: its sentence, its buttons and its bar share one top
+    // the line is a card at the sidebar's foot: its sentence wraps there, its buttons stay inside the drawer's width
     const oneLine = async (label: string) => assert.equal(await page.evaluate(() => {
       const line = document.querySelector(".update-notice.is-line");
-      if (!line) return "no line";
-      const rows = new Set([...line.querySelectorAll(":scope > *, .bridge-progress-step, .bridge-progress-bar")].map((item) => Math.round(item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2)));
-      const text = line.querySelector(":scope > span, .bridge-progress-step > span");
-      const wrapped = text ? text.getBoundingClientRect().height > parseFloat(getComputedStyle(text).fontSize) * 2 : false;
-      return rows.size === 1 && !wrapped ? "one" : `rows ${[...rows].join(",")}${wrapped ? ", wrapped" : ""}`;
-    }), "one", `${label}: the line is one row`);
+      const sidebar = document.querySelector(".sidebar");
+      if (!line || !sidebar) return "no line";
+      const box = line.getBoundingClientRect(), side = sidebar.getBoundingClientRect();
+      return box.left >= side.left - 0.5 && box.right <= side.right + 0.5 ? "inside" : `outside ${box.left},${box.right} of ${side.left},${side.right}`;
+    }), "inside", `${label}: the line stays inside the sidebar`);
 
     // one button, and no detour through Settings
     await page.getByText("herdr web ui v9.9.9 is available.", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "View update", exact: true }).count(), 0, "the line has no View update button");
-    // the line is the pane column's, never a bar across the window between the header and the sidebar
-    assert.ok(await page.locator(".pane-column > .update-notice").count() > 0, "the notice is drawn in the pane column");
-    assert.equal(await page.locator(":not(.pane-column) > .update-notice").count(), 0, "and nowhere else");
+    // the line is the sidebar footer's, never a bar over the chat; a closed drawer's toggle carries a dot for it
+    assert.ok(await page.locator(".sidebar-footer > .update-notice").count() > 0, "the notice is drawn at the sidebar's foot");
+    assert.equal(await page.locator(":not(.sidebar-footer) > .update-notice").count(), 0, "and nowhere else");
     await fits("available");
     await oneLine("available");
     await shot("1-available");
