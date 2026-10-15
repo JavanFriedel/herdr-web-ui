@@ -1543,3 +1543,47 @@ it("gives up an attempt that went out while the page was hidden when it is shown
     jest.useRealTimers();
   }
 });
+
+it("replaces an attempt stuck since before the network came back, and keeps one started after", async () => {
+  const { notifyNetworkUp } = await import("./networkUp.ts");
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    client.connect();
+    const stuck = FakeSocket.last;
+    jest.advanceTimersByTime(5_000);
+    // the network answered a request sent just now: the attempt made 5s ago waits in TCP's backoff
+    notifyNetworkUp(Date.now());
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(stuck);
+    expect(stuck.readyState).toBe(3);
+    // the fresh one went out on the working network: a later answer leaves it alone
+    jest.advanceTimersByTime(500);
+    notifyNetworkUp(Date.now());
+    expect(FakeSocket.last).toBe(fresh);
+    fresh.open();
+    notifyNetworkUp(Date.now() + 10_000);
+    expect(FakeSocket.last).toBe(fresh);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("cuts a reconnect backoff short when the network comes back", async () => {
+  const { notifyNetworkUp } = await import("./networkUp.ts");
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    client.connect();
+    for (const delay of [250, 500, 1_000]) { FakeSocket.last.disconnect(); jest.advanceTimersByTime(delay); }
+    const waiting = FakeSocket.last;
+    waiting.disconnect();
+    // a 2s backoff is waiting: the network back means now
+    notifyNetworkUp(Date.now());
+    expect(FakeSocket.last).not.toBe(waiting);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});

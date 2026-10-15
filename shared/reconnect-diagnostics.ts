@@ -7,7 +7,7 @@ export const DIAGNOSTIC_STAGES = [
   "page.load", "page.resume", "page.hidden", "network.online",
   "ws.wake", "ws.connect", "ws.snapshot", "ws.probe", "ws.probe-timeout", "ws.connect-timeout",
   "ws.backoff", "ws.close", "ws.no-ping", "ws.attach", "ws.first-output", "ws.input-ready",
-  "ws.output-stopped", "ws.probe-paused", "ws.probe-restarted", "ws.wake-kept-attempt", "ws.resume-probe",
+  "ws.output-stopped", "ws.probe-paused", "ws.probe-restarted", "ws.wake-kept-attempt", "ws.resume-probe", "ws.network-up", "net.confirm", "history.network-up",
   "history.queue", "history.read", "history.chunk", "history.gap", "history.prepare",
   "chat.commit", "chat.next-frame", "chat.cached", "http.headers", "http.body", "http.json",
   "http.timeout", "http.no-server-timing", "http.no-remote-timing",

@@ -1,5 +1,6 @@
 import type { ClientMessage, ClientRole, PendingMessage, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
+import { confirmNetwork, onNetworkUp } from "./networkUp.ts";
 import { connectionDiagnostics, type DiagnosticSpan, type DiagnosticTarget } from "./connectionDiagnostics.ts";
 
 type Handler = (message: ServerMessage) => void;
@@ -50,6 +51,12 @@ const PROBE_TIMEOUT_MAX_MS = 12_000;
  */
 const LONG_HIDE_MS = 10_000;
 const RESUME_PROBE_MS = 1_500;
+/**
+ * When the network is known to work again (lib/networkUp.ts), an attempt still connecting that
+ * started at least this long before the request that proved it went out on the dead path, and
+ * its handshake now waits in TCP's backoff: a fresh one connects at once.
+ */
+const NETWORK_UP_SLACK_MS = 1_000;
 const PROBE_OVERDUE_MS = 2_000;
 const IDLE_PROBE_MS = 20_000;
 const IDLE_CHECK_MS = 5_000;
@@ -181,6 +188,24 @@ export class HerdrSocket {
   private attemptAt = 0;
   /** the probe in flight is a resume probe (RESUME_PROBE_MS, see LONG_HIDE_MS) */
   private resumeProbe = false;
+  private stopNetworkUp: (() => void) | null = null;
+  /** the network works again: an attempt stuck since before that, or a backoff still waiting, starts over now */
+  private readonly onNetworkUp = (sentAt: number): void => {
+    const socket = this.socket;
+    if (this.disposed || this.stopped) return;
+    const stuck = socket?.readyState === WebSocket.CONNECTING && this.attemptAt < sentAt - NETWORK_UP_SLACK_MS;
+    if (!stuck && this.reconnectTimer === null) return;
+    connectionDiagnostics.mark("ws.network-up", this.diagnosticTarget());
+    if (stuck && socket) {
+      socket.close();
+      this.closed(socket, 1006);
+    }
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.retries = 0;
+    this.connectTimeouts = 0;
+    this.connect();
+  };
   private mode: ClientRole = "interact";
   /** whether the page is in use (`presence`), as last told; null until the page says */
   private presence: boolean | null = null;
@@ -277,6 +302,8 @@ export class HerdrSocket {
       if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
       this.connectTimeouts += 1;
       handshake.mark("ws.connect-timeout"); handshake.end("error");
+      // a handshake that never answered may be waiting on a network not back yet
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") confirmNetwork();
       socket.close();
       // the close event of an attempt that never opened may come late or not at all: end it here
       this.closed(socket, 1006);
@@ -581,6 +608,7 @@ export class HerdrSocket {
   private listenForWake(): void {
     if (this.wakeListening || typeof window.addEventListener !== "function") return;
     this.wakeListening = true;
+    this.stopNetworkUp = onNetworkUp(this.onNetworkUp);
     window.addEventListener("online", this.onNetwork);
     window.addEventListener("pageshow", this.onWake);
     if (typeof document !== "undefined") {
@@ -611,6 +639,8 @@ export class HerdrSocket {
     this.resumed = false;
     this.networkChanged = false;
     if (this.disposed || this.stopped) return;
+    // a phone's VPN can carry nothing for seconds after a wake: learn the moment it does (onNetworkUp)
+    if (resumed || networkChanged) confirmNetwork();
     const socket = this.socket;
     // an open socket may be half-open after a sleep or a network change: ask it (a bridge without "ping" is trusted)
     if (socket?.readyState === WebSocket.OPEN) {
@@ -958,6 +988,7 @@ export class HerdrSocket {
     this.endedEarly = new WeakSet();
     if (this.wakeListening) {
       window.removeEventListener("online", this.onNetwork);
+      this.stopNetworkUp?.(); this.stopNetworkUp = null;
       window.removeEventListener("pageshow", this.onWake);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onWake);
       this.wakeListening = false;
