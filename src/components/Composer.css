@@ -328,6 +328,49 @@
   white-space: nowrap;
 }
 
+/* Only an OpenCode bridge that offers live model controls turns these labels into buttons. */
+.composer-model-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 1 auto;
+  min-width: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.composer-model-control:hover {
+  color: var(--text);
+}
+
+.composer-model-control:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.composer-model-control > svg {
+  width: var(--space-3);
+  height: var(--space-3);
+  flex: none;
+}
+
+.composer-model-control > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Keep both controls and their chevrons on small phones; truncate labels, never hide buttons. */
+.composer-pill.is-model-controls {
+  gap: var(--space-1);
+}
+
 /* a block of its own, which is what ::first-letter needs */
 .composer-reasoning-short {
   display: inline-block;

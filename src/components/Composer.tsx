@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, ChevronDown, FileText, Folder, FolderGit2, GitBranch, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -55,6 +55,8 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { cachedPaneCommands } from "../lib/paneCommandCache.ts";
+import { hasOpencodeModelControls, opencodeModelCommand } from "../lib/paneModels.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 import { useT } from "../lib/i18n.ts";
 import { modalOpen } from "../lib/focus.ts";
 
@@ -95,6 +97,7 @@ export interface ComposerProps {
   onSend: (text: string, clearDraft?: string) => boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
+  onModelChanged?: () => void;
 }
 
 const UPLOADS_AT_ONCE = 3;
@@ -252,6 +255,7 @@ export function Composer({
   onSend,
   onAbort,
   onUploadImage,
+  onModelChanged,
 }: ComposerProps) {
   const t = useT();
   const activeRef = useRef(active);
@@ -293,6 +297,10 @@ export function Composer({
   /** the restored text the box was filled with: only that fill is ever cleared, never the user's own typing */
   const filledFrom = useRef<string | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const modelControls = hasOpencodeModelControls(agent, commands);
+  const [modelPicker, setModelPicker] = useState<"model" | "reasoning" | null>(null);
+  const closeModelPicker = useCallback(() => setModelPicker(null), []);
+  useEffect(() => { if (!active || !connected || !modelControls) setModelPicker(null); }, [active, connected, modelControls]);
   const [files, setFiles] = useState<string[]>([]);
   const [slashUsage, setSlashUsage] = useState<Record<string, number>>(readSlashUsage);
   // the highlight lives in the refs below: a move redraws the menu, also when it lands on an index it held before
@@ -356,7 +364,9 @@ export function Composer({
 
   useEffect(() => {
     let live = true;
-    void cachedPaneCommands(paneId, machineId, fetchPaneCommands)
+    // OpenCode's commands also advertise model controls; do not reuse another agent's cached list.
+    const load = agent === "opencode" ? fetchPaneCommands(paneId) : cachedPaneCommands(paneId, machineId, fetchPaneCommands);
+    void load
       .then((next) => {
         if (live) setCommands(next);
       })
@@ -366,7 +376,7 @@ export function Composer({
     return () => {
       live = false;
     };
-  }, [paneId]);
+  }, [paneId, agent, machineId, fetchPaneCommands]);
 
   useEffect(() => {
     const request = ++fileRequest.current;
@@ -461,7 +471,8 @@ export function Composer({
       const item = status.querySelector<HTMLElement>(selector);
       return item !== null && item.scrollWidth > item.clientWidth;
     };
-    const first = composerModelDraw({
+    // Read-only metadata may step out; controls must remain reachable even in a narrow pane.
+    const first = modelControls ? "full" : composerModelDraw({
       modelClipped: clipped(".composer-model"),
       effortClipped: clipped(".composer-reasoning"),
     });
@@ -469,7 +480,7 @@ export function Composer({
     // with the level stepped out the row is laid out again: a name still cut to its floor (its
     // min-width, in px once computed) takes the mark and the hairlines out with it
     const model = status.querySelector<HTMLElement>(".composer-model");
-    const draw = model === null ? first : composerLabelDraw(first, {
+    const draw = model === null || modelControls ? first : composerLabelDraw(first, {
       modelClipped: model.scrollWidth > model.clientWidth,
       modelWidth: model.clientWidth,
       modelFloor: parseFloat(getComputedStyle(model).minWidth) || 0,
@@ -484,7 +495,7 @@ export function Composer({
     const line = hint.getBoundingClientRect();
     const beside = meta !== undefined && meta.width > 1 && meta.bottom > line.top && meta.top < line.top + line.height / 2 && meta.right <= line.left + 1;
     if (!beside) status.setAttribute("data-hint-alone", "");
-  }, []);
+  }, [modelControls]);
   useLayoutEffect(fitStatus);
 
   // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
@@ -503,7 +514,7 @@ export function Composer({
     });
     observer.observe(surface);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, []);
+  }, [fitStatus]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -818,6 +829,11 @@ export function Composer({
   const send = useCallback((clearDraft?: string) => {
     if (composingRef.current) return;
     if (!connected || uploading || sending || text.trim().length === 0) return;
+    const modelCommand = modelControls && attachments.length === 0 ? opencodeModelCommand(text) : null;
+    if (modelCommand) {
+      setModelPicker(modelCommand); setText(""); setCaret(0); setNote(null);
+      return;
+    }
     const sent = text;
     const sentAttachments = attachments;
     const settle = (result: boolean | string | DraftRefusal): void => {
@@ -846,11 +862,13 @@ export function Composer({
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, connected, dictation.forget, draftKey, modelControls, onSend, sending, text, uploading, setText]);
 
   /** A quick reply follows the same delivery policy as Send, and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
     if (!connected || sending) return;
+    const modelCommand = modelControls ? opencodeModelCommand(reply) : null;
+    if (modelCommand) { setModelPicker(modelCommand); return; }
     setNote(null);
     // a quick reply is not the box's text, so its note offers no send over a draft
     const settle = (result: boolean | string | DraftRefusal): void => {
@@ -865,7 +883,7 @@ export function Composer({
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [connected, draftKey, onSend, sending]);
+  }, [connected, draftKey, modelControls, onSend, sending]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -961,7 +979,7 @@ export function Composer({
   const sendShown = composerSendShown({ working: isWorking, text });
   const hint = composerStatusHint({ uploading, connected, text });
   const model = metadata?.model ? modelLabel(metadata.model) : null;
-  const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
+  const modelShown = modelControls || Boolean(metadata?.model || metadata?.reasoning_effort);
   const usageDetail = usageWindows.map((window) => {
     const reset = formatResetIn(window.resets_at, Date.now());
     return `${windowLabel(window)} ${meterText(window, settings.usageCount)}${reset ? ` · ${t("Resets in {time}", { time: reset })}` : ""}`;
@@ -1171,22 +1189,24 @@ export function Composer({
             <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
             <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
             {/* the mark, the model, the level and the context ring as one quiet group, its parts told apart by
-                hairlines (.composer-sep) as t3code's composer controls are. It only shows: no role, no focus,
-                nothing to press but the ring inside it. A pane that names no model draws no group (.is-bare):
+                 hairlines (.composer-sep) as t3code's composer controls are. OpenCode's model and effort open
+                 selectors; other agents keep read-only labels. A pane that names no model draws no group (.is-bare):
                 the mark, a level if it has one, and the ring stand in the row as they are */}
-            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
+            <span className={`composer-pill${metadata?.model || modelControls ? "" : " is-bare"}${modelControls ? " is-model-controls" : ""}`}>
               {agent && <AgentMark agent={agent} size={14} />}
               {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
                 {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {modelControls ? <button type="button" className={`composer-model composer-model-control${model ? model.named ? "" : " is-id" : " is-none"}`} title={t("Choose a model")} aria-label={t("Choose a model")} aria-haspopup="dialog" disabled={!connected} onClick={() => setModelPicker("model")}><span>{model?.text ?? t("Model —")}</span><ChevronDown aria-hidden="true" /></button>
+                  : <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>}
                 {/* behind a name the id as received is still read; a touch cannot reach the title */}
                 {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
                 {/* no level recorded: nothing is drawn for it, no hairline and no dash; the sentence is still read */}
-                {metadata?.reasoning_effort && sep}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+                {(metadata?.reasoning_effort || modelControls) && sep}
+                {modelControls ? <button type="button" className="composer-reasoning composer-model-control" title={t("Choose reasoning effort")} aria-label={t("Choose reasoning effort")} aria-haspopup="dialog" disabled={!connected} onClick={() => setModelPicker("reasoning")}><span className="composer-reasoning-short">{metadata?.reasoning_effort || t("Default")}</span><ChevronDown aria-hidden="true" /></button>
+                  : <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
                   <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
                   {metadata?.reasoning_effort && <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>}
-                </span>
+                </span>}
               </span>}
               {metadata?.context && modelShown && sep}
               {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
@@ -1208,6 +1228,7 @@ export function Composer({
             </span>
           )}
         </div>
+        {modelPicker && <ModelPicker paneId={paneId} mode={modelPicker} onClose={closeModelPicker} onChanged={() => { if (mounted.current) onModelChanged?.(); }} />}
         {/* the action icons, between the model group and the round button (the class names are the groups'
             first names, kept for the browser scripts that read them) */}
         <div className="composer-controls composer-controls-left">
