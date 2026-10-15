@@ -104,13 +104,17 @@ try {
   const head = (expanded: boolean, title: string) => log.locator(`.work-block-head[aria-expanded="${expanded}"]`).filter({ hasText: title });
   await head(false, "Worked for 7s").waitFor();
   await report("working");
-  await head(true, "Working…").waitFor();
+  // the running turn's head names its steps; the line over the composer says it works
+  await log.locator('.work-block.is-live .work-block-head[aria-expanded="true"]').waitFor();
+  await log.locator(".chat-activity", { hasText: "Working…" }).waitFor();
   assert.equal(await log.locator(".work-block.is-folded").count(), 0, "the running turn's work is open");
   await report("idle");
   await head(false, "Worked for 7s").waitFor();
   // working inside the block is a choice to keep it: the fold must not take a focused row away
   await report("working");
-  await head(true, "Working…").waitFor();
+  // the running turn's head names its steps; the line over the composer says it works
+  await log.locator('.work-block.is-live .work-block-head[aria-expanded="true"]').waitFor();
+  await log.locator(".chat-activity", { hasText: "Working…" }).waitFor();
   // the row reads as verb + object (#457); its tool id is the title
   const toolRow = log.getByRole("button", { name: "Ran git status", exact: true });
   await toolRow.click();

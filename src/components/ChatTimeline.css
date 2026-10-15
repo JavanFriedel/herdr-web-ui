@@ -52,6 +52,12 @@
   padding-bottom: calc(var(--space-5) + var(--composer-over, 0px));
 }
 
+/* a phone keeps the transcript's end close to the input: the status line and the last words sit
+   right over the composer, as a messaging app's do */
+@media (max-width: 768px) {
+  .chat-virtual-footer { padding-bottom: calc(var(--space-2) + var(--composer-over, 0px)); }
+}
+
 .chat-new-messages.chat-virtual-jump {
   position: absolute;
 }

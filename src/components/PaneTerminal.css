@@ -365,4 +365,6 @@
 }
 
 .pane-terminal.has-viewport-tools { width: calc(100% - var(--terminal-history-gutter)); }
-@media (pointer: coarse) { .terminal-surface { --terminal-history-gutter: var(--space-6); } }
+/* A touch screen keeps every column: its history bar floats over the right edge, and only while
+   the view is scrolled back (TerminalViewportTools.css) */
+@media (pointer: coarse) { .pane-terminal.has-viewport-tools { width: 100%; } }

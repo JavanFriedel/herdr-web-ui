@@ -6,6 +6,7 @@ import type { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { pageScrollDistance } from "../lib/pageScroll.ts";
 import { offsetAtThumb, scrollPollDelay, scrollThumb, validScroll, visibleFindRects, type FindCellRect } from "../lib/terminalViewport.ts";
 import "./TerminalViewportTools.css";
@@ -36,6 +37,9 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
   const overlapRef = useRef(settings.pageOverlapRows); overlapRef.current = settings.pageOverlapRows;
   const layer = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
+  // a touch screen's bar floats over the terminal, so it shows only while the view is scrolled back or held
+  const touch = useMediaQuery("(pointer: coarse)");
+  const [held, setHeld] = useState(false);
   const [scroll, setScroll] = useState<PaneScrollInfo | null>(null);
   const scrollRef = useRef(scroll); scrollRef.current = scroll;
   const [box, setBox] = useState<Box | null>(null);
@@ -253,7 +257,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
   return <div ref={layer} className="terminal-viewport-tools" aria-hidden={!enabled || undefined}>
     {enabled && search && box && hits.map((hit, index) => <span key={index} className={`terminal-find-hit${hit.current ? " is-current" : ""}`} aria-hidden="true"
       style={{ left: box.left + hit.col * box.width / box.cols, top: box.top + hit.row * box.height / box.rows, width: hit.width * box.width / box.cols, height: box.height / box.rows }} />)}
-    {enabled && box && box.trackHeight > 0 && metrics && metrics.max_offset_from_bottom > 0 && thumb && <div ref={track} className="terminal-history-scrollbar"
+    {enabled && box && box.trackHeight > 0 && metrics && metrics.max_offset_from_bottom > 0 && thumb && <div ref={track} className={`terminal-history-scrollbar${touch && !held && metrics.offset_from_bottom === 0 ? " is-resting" : ""}`}
       role="scrollbar" aria-label={t("Terminal scrollback")} aria-controls={viewportId} aria-orientation="vertical"
       aria-valuemin={0} aria-valuemax={metrics.max_offset_from_bottom} aria-valuenow={metrics.max_offset_from_bottom - metrics.offset_from_bottom}
       aria-disabled={!interactive || undefined} tabIndex={interactive ? 0 : -1} style={{ top: box.trackTop, height: box.trackHeight }}
@@ -263,13 +267,14 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         const rect = event.currentTarget.getBoundingClientRect();
         const onThumb = event.clientY >= rect.top + thumb.top && event.clientY <= rect.top + thumb.top + thumb.height;
         drag.current = { pointer: event.pointerId, top: rect.top, height: rect.height, grab: onThumb ? event.clientY - rect.top - thumb.top : thumb.height / 2, thumb: thumb.height };
+        setHeld(true);
         event.currentTarget.setPointerCapture(event.pointerId);
         move(event);
       }} onPointerMove={move} onPointerUp={(event) => {
         if (drag.current?.pointer !== event.pointerId) return;
-        move(event); drag.current = null;
+        move(event); drag.current = null; setHeld(false);
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}
+      }} onPointerCancel={() => { drag.current = null; setHeld(false); }} onLostPointerCapture={() => { drag.current = null; setHeld(false); }}
       onKeyDown={(event) => {
         if (event.defaultPrevented || !interactive) return;
         const offset = metrics.offset_from_bottom;

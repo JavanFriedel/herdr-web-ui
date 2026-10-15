@@ -949,7 +949,17 @@
   font-size: var(--fs-sm);
 }
 
-.chat-activity svg { width: 1em; height: 1em; flex: none; }
+.chat-activity svg { width: 1em; height: 1em; flex: none; animation: pulse var(--dur-pulse) var(--ease-pulse) infinite; }
+
+/* how long the turn has run: quiet beside the word, its digits holding still as they count */
+.chat-activity-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-activity svg { animation: none; }
+}
 
 .chat-endcap {
   width: 100%;

@@ -62,9 +62,10 @@ try {
     add("PLANNER_RESPONSE", "", { tool_calls: [{ name: "view_file", args: { AbsolutePath: "/fiction.txt" } }] });
     await log.locator(".work-block.is-live .work-row-head").last().waitFor({ state: "visible" });
     add("GENERIC", "Fictional tool result");
-    // the open work block's head says Working now: the line under it goes
-    await log.locator(".work-block.is-live .work-block-title", { hasText: "Working…" }).waitFor();
-    await activity.waitFor({ state: "detached" });
+    // the open work block's head names its steps; the line over the composer still says it works
+    await log.locator(".work-block.is-live .work-block-summary").waitFor();
+    assert.equal(await log.locator(".work-block.is-live .work-block-title").count(), 0, "a running turn's head does not say Working");
+    await log.locator(".chat-activity", { hasText: "Working…" }).waitFor();
     if (viewport.width === 390 && process.env.UI_EVIDENCE_DIR) {
       mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
       await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "agy-mobile-activity.png") });

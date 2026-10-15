@@ -415,13 +415,15 @@ function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, sh
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
   const failed = workFailed(parts);
-  // a blocked agent is not working: the open block takes the sidebar's words for it
-  const title = waiting ? t("Needs you") : live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
+  // a blocked agent is not working: the open block takes the sidebar's words for it. While it works the
+  // head names only what was done so far: the status line over the composer says that it works
+  const title = waiting ? t("Needs you") : live ? null : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
   return <section className={`work-block${live ? " is-live" : ""}${waiting ? " is-waiting" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
-      <span className="work-block-title">{title}</span>
-      {summary.length > 0 && <span className="work-block-summary">· {summary}</span>}
+      {title !== null && <span className="work-block-title">{title}</span>}
+      {summary.length > 0 && <span className="work-block-summary">{title !== null ? "· " : ""}{summary}</span>}
+      {title === null && summary.length === 0 && <span className="work-block-summary">{t("Steps")}</span>}
       {/* its own span: the counts before it are cut on a narrow screen, a failure never is */}
       {failed > 0 && <span className="work-block-failed">· {t("{n} failed", { n: failed })}</span>}
     </button>
@@ -435,6 +437,26 @@ function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, sh
       </div>
     </AnimatedHeight>
   </section>;
+}
+
+/**
+ * The agent's turn as a status line at the end of the transcript, right over the composer: what it
+ * is doing and for how long, counted from the message that started the turn. The time is for the
+ * eye only: a status that changes every second would be read out every second.
+ */
+function ChatActivityLine({ thinking, since }: { thinking: boolean; since: number | null }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === null) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [since]);
+  return <p className="chat-activity" role="status">
+    <CircleDot aria-hidden="true" />
+    <span>{thinking ? t("Thinking…") : t("Working…")}</span>
+    {since !== null && now >= since && <span className="chat-activity-time" aria-hidden="true">{formatElapsed(now - since)}</span>}
+  </p>;
 }
 
 /** Skill evidence stays visible even when the surrounding work block is folded. */
@@ -1306,9 +1328,12 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   }, [turns, restored]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
-  // the last turn is an open work block, whose head already says the agent works
-  const lastShownTurn = state.source === "conversation" ? shownTurns.at(-1) : undefined;
-  const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend);
+  // the running turn began with the user's last message: the status line counts from it
+  const turnStartedAt = useMemo(() => {
+    const ts = [...shownTurns].reverse().find((turn) => turn.role === "user")?.ts;
+    const at = ts ? Date.parse(ts) : NaN;
+    return Number.isFinite(at) ? at : null;
+  }, [shownTurns]);
   const empty = state.source === "conversation" ? turns.length === 0 : agent === null && state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
   // the scrollback standing in says nothing of the conversation: it has no history to compare
@@ -1424,7 +1449,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
       {/* A native turn's activity, where no open work block says it: before the turn has an assistant
           or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
-      {state.activity !== undefined && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
+      {connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && <ChatActivityLine thinking={activity === "thinking"} since={turnStartedAt} />}
       {loaded && empty && error === null && prompt === null && (state.activity === undefined || activity === "idle") && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
   </>;

@@ -330,6 +330,7 @@ export const ZH: Record<string, string> = {
   "Connecting…": "正在连接…",
   "Connected": "已连接",
   "Reconnecting…": "正在重连…",
+  "Steps": "步骤",
   "Last synced {time}": "上次同步 {time}",
   "No network": "无网络",
   "Can't reach herdr web ui": "无法连接 herdr web ui",
