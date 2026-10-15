@@ -224,7 +224,7 @@ function MachineActionNotice({ machine, onSetup }: { machine: Machine; onSetup(m
 }
 
 /** The app-wide line for PCs that wait on the user, so a closed drawer on a phone still says so. */
-export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]; onSetup(machine: Machine, update?: boolean): void }) {
+export function MachineActionBanner({ machines, onSetup, onDismiss }: { machines: Machine[]; onSetup(machine: Machine, update?: boolean): void; onDismiss?(): void }) {
   const t = useT();
   // a PC that cannot be updated right now would hold this line open for good: it can be closed,
   // and the PC's own row in the sidebar keeps saying what it needs
@@ -249,6 +249,6 @@ export function MachineActionBanner({ machines, onSetup }: { machines: Machine[]
   return <div className="update-notice" role="status">
     <span>{t(conflict ? "{name} has a bridge connection conflict{others}." : update ? "{name} needs a bridge update to reconnect{others}." : "{name} needs web access setup{others}.", { name: first.name, others })}</span>
     <button type="button" className="btn" onClick={() => update ? void machineRequest(`/${encodeURIComponent(first.id)}/update-bridge`, "POST").catch(() => onSetup(first, true)) : onSetup(first, false)}>{t(conflict ? "Reconnect" : update ? "Update bridge" : "Set up web access")}</button>
-    <button type="button" className="icon-button update-notice-dismiss" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => { const next = [...dismissed, ...waiting.map(noticeKey)]; setDismissed(next); writeDismissed(next); }}><X /></button>
+    <button type="button" className="icon-button update-notice-dismiss" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => { const next = [...dismissed, ...waiting.map(noticeKey)]; setDismissed(next); writeDismissed(next); onDismiss?.(); }}><X /></button>
   </div>;
 }

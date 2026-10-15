@@ -345,7 +345,8 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const panePanel = paneTabPanelLabel(snapshot, selectedPane, t) !== null ? panelId : undefined;
   return (
     <>
-      <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}
+      {/* one tab holding one pane says nothing the header does not: a phone hides it (TabStrip.css), and New tab stays in More */}
+      <div ref={strip} className={`tab-strip${tabs.length === 1 && panesOf(tabs[0]!).length <= 1 && !editing ? " is-lone" : ""}`} role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}
         onFocus={(event) => { if (event.target.getAttribute("role") === "tab") focusedTab.current = event.target; }}
         onBlur={(event) => { if (event.relatedTarget !== null) focusedTab.current = null; }}>
         {tabs.map((tab, index) => {

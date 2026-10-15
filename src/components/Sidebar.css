@@ -607,3 +607,42 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 .plan-count.is-done svg {
   color: var(--status-done);
 }
+
+/* A repository's worktrees herdr could not restore (Sidebar.tsx): one quiet row in their place,
+   at the worktrees' indent, that opens them. Its warning keeps the blocked color their own rows
+   draw, held small. */
+.workspace-stale-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--side-row);
+  /* the chevron sits in the column of the worktrees' marks */
+  padding: 0 var(--space-2) 0 calc(var(--side-fold) + var(--space-3) + (var(--side-box) - var(--space-4)) / 2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-stale-toggle svg {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.workspace-stale-toggle .workspace-stale-mark {
+  width: var(--space-3);
+  height: var(--space-3);
+  color: var(--status-blocked);
+}
+
+.workspace-stale-toggle:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
+
+@media (hover: hover) {
+  .workspace-stale-toggle:hover { background: var(--side-hover); color: var(--text); }
+}

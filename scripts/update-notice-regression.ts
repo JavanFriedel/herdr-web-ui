@@ -48,6 +48,13 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     });
 
     await page.goto(origin);
+    // the lines live at the sidebar's foot; on a phone the drawer's toggle carries a dot for them, and opening it shows them
+    const openDrawer = async () => {
+      const toggle = page.locator('[aria-controls="workspace-drawer"]').first();
+      if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+    };
+    await page.locator(".drawer-toggle-dot").waitFor();
+    await openDrawer();
     const notice = page.locator(".update-notice").filter({ hasText: /herdr web ui|update|Step|Starting/i }).first();
     const fits = async (label: string) => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${label}: nothing overflows sideways`);
     // the line is a card at the sidebar's foot: its sentence wraps there, its buttons stay inside the drawer's width
@@ -92,6 +99,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await page.getByRole("button", { name: "Details", exact: true }).click();
     await page.getByRole("dialog", { name: "Settings" }).getByText("bun run build failed: fixture").waitFor();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
+    await openDrawer();
     await page.getByRole("button", { name: "Try again", exact: true }).click();
     await page.getByText("Starting the update…", { exact: true }).waitFor();
     assert.equal(installs, 2, "Try again asks for the install again");
@@ -112,6 +120,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     const line = page.getByText("QA PC needs a bridge update to reconnect.", { exact: true });
     const dismissed = () => page.evaluate(() => localStorage.getItem("herdr-web-ui:pc-notice-dismissed"));
     remote = pc;
+    await openDrawer();
     await line.waitFor();
     await fits("bridge update needed");
     await shot("4-bridge-update-needed");
@@ -132,6 +141,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     remote = { ...pc, state: "connected", action_required: null };
     await page.waitForFunction(() => localStorage.getItem("herdr-web-ui:pc-notice-dismissed") === null);
     remote = pc;
+    await openDrawer();
     await line.waitFor();
     assert.deepEqual(errors, []);
     console.log("PASS the line for a PC that needs a bridge update closes and stays closed until the PC connects");

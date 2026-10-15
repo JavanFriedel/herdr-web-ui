@@ -179,3 +179,10 @@
 }
 .tab-strip-item.is-drop-before::before { left: 0; }
 .tab-strip-item.is-drop-after::after { right: 0; }
+
+/* A workspace with one tab of one pane: on a phone the row would repeat the header's title and
+   cost a row of the pane's height, so it draws nothing. It stays in the document; New tab is in
+   the header's More, and a second tab or a split brings the row back. */
+@media (max-width: 768px) {
+  .tab-strip.is-lone { display: none; }
+}

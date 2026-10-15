@@ -71,6 +71,9 @@ try {
   await dialog.getByRole("button", { name: "Close PC setup" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  // on a phone the line is at the drawer's foot, and the closed drawer's toggle carries a dot for it
+  await page.locator(".drawer-toggle-dot").waitFor();
+  await page.locator('[aria-controls="workspace-drawer"]').first().click();
   await page.locator(".update-notice").getByRole("button", { name: "Reconnect", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: `${shots}/conflict-mobile.png` });
@@ -85,7 +88,7 @@ try {
   // the PC's name opens its details; Remove PC there asks once more in a dialog
   await group.getByRole("button", { name: `Details for ${pc.name}`, exact: true }).click();
   await page.getByRole("menuitem", { name: "Remove PC", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Remove PC", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove PC", exact: true }).click();
   await page.locator(`section.machine-group.is-current[aria-label="PC ${local.name}"]`).waitFor();
   await page.waitForFunction(() => document.querySelector(`section.machine-group[aria-label="PC QA remote"]`) === null);
   // the roster without the PC came in while the request was held: a note it raised is still up
