@@ -308,7 +308,7 @@ The Herdr plugin's **Notifications: Desktop / Mobile** action opens a small popu
   usual delivery delay or desk-presence command. A visible, focused window of the web app
   still holds pushes. Each device's Needs input and Finished choices still apply.
 
-Use the arrows and Enter, or click a choice. Escape closes without changing the mode. Existing
+Use j/k or the arrows to select and Enter to apply, or click a choice. Escape closes without changing the mode. Existing
 alerts are not replayed when the destination changes. The mode survives bridge restarts;
 until the first explicit choice, the existing notification behavior is unchanged.
 

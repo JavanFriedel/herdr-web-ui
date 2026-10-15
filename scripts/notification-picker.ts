@@ -20,7 +20,7 @@ export function notificationPickerFrame(status: NotificationModeStatus, selected
       else errorLines.push(word.slice(0, width));
     }
   }
-  return [current, "", row("desktop", "Desktop — phone pushes off"), "", row("mobile", "Mobile — phone pushes immediately"), "", ...errorLines.slice(0, 3), "↑/↓ select · Enter apply · Esc close"].map((line) => line.slice(0, width)).join("\r\n");
+  return [current, "", row("desktop", "Desktop — phone pushes off"), "", row("mobile", "Mobile — phone pushes immediately"), "", ...errorLines.slice(0, 3), "j/k or ↑/↓ · Enter apply · Esc close"].map((line) => line.slice(0, width)).join("\r\n");
 }
 
 /** A plugin-owned terminal popup; it never starts/stops Herdr or requests browser permissions. */
@@ -81,7 +81,7 @@ export async function notificationPicker(options: NotificationPickerOptions): Pr
     const keypress = (_text: string, key: { name?: string; ctrl?: boolean }) => {
       if (busy) return;
       if (key.name === "escape" || key.name === "c" && key.ctrl) return finish(0);
-      if (key.name === "up" || key.name === "down" || key.name === "tab") selected = selected === "desktop" ? "mobile" : "desktop";
+      if (key.name === "up" || key.name === "down" || key.name === "tab" || key.name === "j" || key.name === "k") selected = selected === "desktop" ? "mobile" : "desktop";
       else if (key.name === "d" || key.name === "1") selected = "desktop";
       else if (key.name === "m" || key.name === "2") selected = "mobile";
       else if (key.name === "return") { void apply(); return; }

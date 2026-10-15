@@ -66,7 +66,7 @@ describe("notification modes through the Herdr plugin", () => {
       await wait(() => stripVTControlCharacters(screen).toLowerCase().includes("herdr"), "Herdr client did not render");
       input.write("\x02M"); await input.flush();
       await wait(() => stripVTControlCharacters(screen).replace(/\s+/g, "").includes("Current:Desktop"), "notification popup did not open");
-      input.write("m\r"); await input.flush();
+      input.write("j\r"); await input.flush();
       await wait(async () => (await (await fetch(`${origin}/api/notifications/mode`)).json()).mode === "mobile", "Mobile was not confirmed");
       expect(Bun.TOML.parse(readFileSync(config, "utf8"))).toMatchObject({ ui: { toast: { delivery: "off" }, sound: { enabled: false } } });
       screen = "";

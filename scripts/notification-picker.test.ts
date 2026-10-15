@@ -9,6 +9,7 @@ describe("notification popup", () => {
     expect(frame).toContain("  ✓ Desktop");
     expect(frame).toContain(">   Mobile");
     expect(frame).toContain("phone pushes immediately");
+    expect(frame).toContain("j/k or ↑/↓");
   });
   it("fits narrow terminals and explains interrupted switches", () => {
     const frame = notificationPickerFrame({ supported: true, mode: null, changing: true }, "desktop", 32);
@@ -70,6 +71,30 @@ describe("notification popup", () => {
     tty.input.write("\x1b[<0;8;5M");
     expect(await running).toBe(0);
     expect(posted).toEqual({ mode: "mobile" });
+  });
+
+  it.each([
+    ["desktop", "j", "mobile"],
+    ["mobile", "k", "desktop"],
+  ] as const)("moves from %s with %s, applying %s only on Enter", async (current, key, selected) => {
+    const tty = terminal();
+    const posted: unknown[] = [];
+    const running = notificationPicker({ origin: "http://localhost", input: tty.input as unknown as NodeJS.ReadStream, output: tty.output as unknown as NodeJS.WriteStream,
+      fetch: async (_url, init) => {
+        if (init?.method !== "POST") return Response.json({ supported: true, mode: current, changing: false });
+        posted.push(JSON.parse(String(init.body)));
+        return Response.json({ supported: true, mode: selected, changing: false });
+      },
+    });
+    await tty.seen(`Current: ${current === "desktop" ? "Desktop" : "Mobile"}`);
+    tty.input.write(key);
+    const frame = tty.text().split("\x1b[H\x1b[2J").at(-1)!;
+    expect(frame).toContain(`>   ${selected === "desktop" ? "Desktop" : "Mobile"}`);
+    expect(frame).toContain(`Current: ${current === "desktop" ? "Desktop" : "Mobile"}`);
+    expect(posted).toEqual([]);
+    tty.input.write("\r");
+    expect(await running).toBe(0);
+    expect(posted).toEqual([{ mode: selected }]);
   });
 
   it("Escape closes without changing anything", async () => {
