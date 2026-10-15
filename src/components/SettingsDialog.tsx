@@ -8,7 +8,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, isMacPlatform, modKeyLabel, setShortcutRecording, shortcutDisplayKeys, shortcutKeys, shortcutConflict, type ShortcutId } from "../lib/shortcuts.ts";
 import { SHORTCUT_KEYS, recordShortcut, shortcutMatchesQuery } from "../lib/shortcutRecorder.ts";
 import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
-import { ATTACH_LIMIT_MAX, ATTACH_LIMIT_MIN, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type TerminalCursorStyle, type VoiceButton } from "../lib/settings.ts";
+import { ATTACH_LIMIT_MAX, ATTACH_LIMIT_MIN, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, TERMINAL_RENDERERS, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type TerminalCursorStyle, type TerminalRenderer, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { CONTRAST_MAX, CONTRAST_MIN, contrastText } from "../lib/contrast.ts";
 import type { FontSmoothing, PanelMotion } from "../lib/appearanceRendering.ts";
@@ -447,6 +447,10 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
       </SettingsRow>
       <SettingsRow label={t("Blinking cursor")}>
         <Toggle label={t("Blinking cursor")} checked={settings.terminalCursorBlink} onChange={(terminalCursorBlink) => update({ terminalCursorBlink })} />
+      </SettingsRow>
+      <SettingsRow label={t("Renderer")} description={t("GPU draws the terminal with WebGL, which keeps scrolling smooth on a phone. Auto uses it on touch screens.")} wide>
+        <Segmented label={t("Renderer")} value={settings.terminalRenderer} onChange={(terminalRenderer: TerminalRenderer) => update({ terminalRenderer })}
+          options={TERMINAL_RENDERERS.map((renderer) => ({ value: renderer, label: t(renderer === "auto" ? "Auto" : renderer === "gpu" ? "GPU" : "Compatible") }))} />
       </SettingsRow>
       <SettingsRow label={t("Wheel scroll speed")} description={t("How far one turn of the wheel scrolls the terminal")}>
         <Stepper label={t("Wheel scroll speed")} value={settings.terminalWheelSpeed} text={`${settings.terminalWheelSpeed}×`} min={TERMINAL_WHEEL_SPEED_MIN} max={TERMINAL_WHEEL_SPEED_MAX} decreaseLabel={t("Slower wheel scrolling")} increaseLabel={t("Faster wheel scrolling")} onChange={(terminalWheelSpeed) => update({ terminalWheelSpeed })} />

@@ -35,6 +35,7 @@ import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { FindBar } from "./FindBar.tsx";
 import { TerminalViewportTools, type LineScrollResult, type TerminalSearchState } from "./TerminalViewportTools.tsx";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
@@ -45,7 +46,7 @@ import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneControls, PaneView } from "../lib/actions.ts";
 import { usePaneLane } from "../lib/chatLane.ts";
-import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
+import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle, type TerminalRenderer } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -76,6 +77,15 @@ const inUse = (): boolean => document.visibilityState === "visible" && document.
  * rate): the speed keeps GLIDE_DECAY_PER_MS of itself each millisecond, so a flick at v px/ms
  * travels about v / 0.002 px. It starts from GLIDE_START_SPEED and stops under GLIDE_MIN_SPEED.
  */
+/**
+ * "auto" draws with the GPU on a touch screen, where the DOM renderer's work for each redraw is
+ * what a scroll waits on. Browser automation keeps the DOM renderer, whose rows the browser
+ * scripts read as text; a script that measures the GPU renderer asks for it by name.
+ */
+function autoGpu(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !navigator.webdriver;
+}
+
 const GLIDE_DECAY_PER_MS = 0.998;
 const GLIDE_START_SPEED = 0.3;
 const GLIDE_MIN_SPEED = 0.02;
@@ -124,6 +134,8 @@ export interface PaneTerminalProps {
   terminalCursorStyle: TerminalCursorStyle;
   /** xterm cursorBlink (settings) */
   terminalCursorBlink: boolean;
+  /** which xterm renderer draws (settings): "auto" is the GPU on a touch screen */
+  terminalRenderer: TerminalRenderer;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
@@ -175,6 +187,7 @@ export function PaneTerminal({
   split = false,
   terminalCursorStyle,
   terminalCursorBlink,
+  terminalRenderer,
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
@@ -241,6 +254,10 @@ export function PaneTerminal({
   const baseFontRef = useRef(terminalFontSize);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const pageScroll = useRef<((direction: -1 | 1) => void) | null>(null);
+  const rendererRef = useRef(terminalRenderer); rendererRef.current = terminalRenderer;
+  /** switches the live terminal's renderer (set while a terminal is open) */
+  const applyRendererRef = useRef<(choice: TerminalRenderer) => void>(() => {});
+  useEffect(() => { applyRendererRef.current(terminalRenderer); }, [terminalRenderer]);
   // a finger's scroll through herdr's history, a line at a time (TerminalViewportTools)
   const lineScroll = useRef<((lines: number) => LineScrollResult) | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -605,7 +622,32 @@ export function PaneTerminal({
     };
     host.addEventListener("compositionstart", compositionStart);
     host.addEventListener("compositionend", compositionEnd);
-    const stopGlyphs = adjustTerminalGlyphs(term);
+    // The DOM renderer's spans are fitted for box characters and wide icons (terminalGlyphs.ts); the
+    // GPU renderer draws box characters itself and has no spans to fit. A lost GPU context falls
+    // back to the DOM renderer, as xterm does once the addon is gone.
+    let gpu: WebglAddon | null = null;
+    let stopGlyphs: () => void = adjustTerminalGlyphs(term);
+    const useDom = (): void => {
+      const addon = gpu;
+      gpu = null;
+      addon?.dispose();
+      stopGlyphs();
+      stopGlyphs = adjustTerminalGlyphs(term);
+    };
+    applyRendererRef.current = (choice) => {
+      const wanted = choice === "gpu" || (choice === "auto" && autoGpu());
+      if (wanted && gpu === null) {
+        try {
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => { if (gpu === addon) useDom(); });
+          term.loadAddon(addon);
+          stopGlyphs();
+          stopGlyphs = () => {};
+          gpu = addon;
+        } catch { /* no WebGL2 here: the DOM renderer stays */ }
+      } else if (!wanted && gpu !== null) useDom();
+    };
+    applyRendererRef.current(rendererRef.current);
     // Let the browser emit a paste event, which xterm already handles (including
     // bracketed paste). Otherwise Ctrl+V becomes 0x16, triggering the agent's
     // image-paste shortcut against the server's clipboard and canceling text paste.
@@ -1889,6 +1931,7 @@ export function PaneTerminal({
       off();
       if (!machineSessions) session.close();
       stopGlyphs();
+      applyRendererRef.current = () => {};
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
       if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);

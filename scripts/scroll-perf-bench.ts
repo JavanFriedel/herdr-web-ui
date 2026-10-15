@@ -25,6 +25,8 @@ const LATENCY_MS = Number(process.env["LATENCY_MS"] ?? 40);
 const RUNS = Number(process.env["RUNS"] ?? 3);
 const CPU = Number(process.env["CPU"] ?? 4);
 const LINES = 2000;
+/** the terminal renderer setting: "dom" (Compatible) or "gpu" (WebGL; headless Chromium draws it in software) */
+const RENDERER = process.env["RENDERER"] ?? "dom";
 
 interface Wire { up: { at: number; type: string; bytes: number }[]; down: { at: number; type: string; bytes: number }[] }
 interface Result { firstMs: number | null; settleMs: number; lines: number; upFrames: number; upHttp: number; downFrames: number; downKiB: number; taskMs: number; longTasks: number }
@@ -120,10 +122,11 @@ try {
   assert.ok(history > 500, `the shell holds the lines as herdr history (${history})`);
 
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(state, "state"), usage: new UsageService(undefined, []) });
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox"] });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--ignore-gpu-blocklist"] });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3, locale: "en-US" });
+  await context.addInitScript((renderer) => { (window as unknown as { benchRenderer: string }).benchRenderer = renderer; }, RENDERER);
   await context.addInitScript(() => {
-    if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal", alertsOn: false }));
+    if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal", alertsOn: false, terminalRenderer: (window as unknown as { benchRenderer: string }).benchRenderer }));
     const posts: number[] = [];
     (window as unknown as { scrollPosts: number[] }).scrollPosts = posts;
     const original = window.fetch.bind(window);
@@ -170,9 +173,30 @@ try {
   await page.locator(".xterm-screen").waitFor();
   await page.getByText("bench_2_ready").first().waitFor({ timeout: 20_000 }).catch(() => undefined);
   await settled(wire, 1500);
+  const drawnBy = await page.evaluate(() => document.querySelector(".xterm-screen canvas") ? "webgl" : "dom");
+  assert.equal(drawnBy, RENDERER === "gpu" ? "webgl" : "dom", `the terminal draws with the ${RENDERER} renderer`);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
 
-  console.log(`scroll bench: ${LATENCY_MS} ms each way, CPU ${CPU}x, ${RUNS} runs, median per gesture`);
+  console.log(`scroll bench: ${LATENCY_MS} ms each way, CPU ${CPU}x, ${RENDERER} renderer, ${RUNS} runs, median per gesture`);
+  if (process.env["PROFILE"]) {
+    // one drag under the sampling profiler: self time per function, the heaviest first
+    await cdp.send("Profiler.enable");
+    await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+    await cdp.send("Profiler.start");
+    await gesture(page, cdp, wire, paneId, "drag");
+    const { profile } = await cdp.send("Profiler.stop");
+    const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+    const self = new Map<string, number>();
+    const deltas = profile.timeDeltas ?? [];
+    (profile.samples ?? []).forEach((id, index) => {
+      const frame = byId.get(id)!.callFrame;
+      const name = `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop() ?? ""}:${frame.lineNumber}`;
+      self.set(name, (self.get(name) ?? 0) + (deltas[index] ?? 0) / 1000);
+    });
+    const total = [...self.values()].reduce((a, b) => a + b, 0);
+    console.log(`profile: ${total.toFixed(0)} ms sampled`);
+    for (const [name, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 18)) console.log(`  ${ms.toFixed(1).padStart(7)} ms  ${name}`);
+  }
   for (const kind of ["drag", "flick"] as const) {
     const results: Result[] = [];
     for (let run = 0; run < RUNS; run += 1) results.push(await gesture(page, cdp, wire, paneId, kind));
