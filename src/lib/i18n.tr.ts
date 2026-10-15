@@ -311,6 +311,7 @@ export const TR: Record<string, string> = {
   "Connecting…": "Bağlanıyor…",
   "Connected": "Bağlandı",
   "Reconnecting…": "Yeniden bağlanıyor…",
+  "Steps": "Adımlar",
   "Last synced {time}": "Son eşitleme {time}",
   "No network": "Ağ yok",
   "Can't reach herdr web ui": "herdr web ui erişilemiyor",

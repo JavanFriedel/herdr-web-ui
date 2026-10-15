@@ -1065,9 +1065,18 @@ One set for both themes: the card is island black wherever it shows.
   message), so those are not greeted; an omo session not yet written answers an empty
   conversation and is.
 
+### Terminal history bar (`.terminal-history-scrollbar`)
+- With a mouse the terminal keeps a `--space-3` gutter on its right for herdr's history bar. A
+  touch screen keeps every column: the bar is a finger-wide transparent strip over the last
+  columns with a `--space-1` thumb at its edge, drawn only while the view is scrolled back into
+  history or the thumb is held.
+
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs;
+  timestamp minus this one's; while the agent runs the header names only the steps so far, "1 edit ·
+  2 commands" (or "Steps" before the first), and the turn's status is the chat's last line instead:
+  `.chat-activity`, "Working…" or "Thinking…" in `--status-working` behind a pulsing dot, then the
+  time since the user's message in `--text-dim` tabular figures, right over the composer;
   "Needs you" in `--text-dim` behind a still `--status-blocked` dot while the
   agent is blocked, by the pane's status and not by whether a prompt card was parsed) over
   one-line rows on the header's own left edge, which is the prose edge too (the hover plate

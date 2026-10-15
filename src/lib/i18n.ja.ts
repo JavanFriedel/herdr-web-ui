@@ -328,6 +328,7 @@ export const JA: Record<string, string> = {
   "Connecting…": "接続しています…",
   "Connected": "接続済み",
   "Reconnecting…": "再接続しています…",
+  "Steps": "ステップ",
   "Last synced {time}": "最終同期 {time}",
   "No network": "ネットワークなし",
   "Can't reach herdr web ui": "herdr web ui に接続できません",

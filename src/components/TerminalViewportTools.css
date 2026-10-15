@@ -6,3 +6,12 @@
 .terminal-history-scrollbar[aria-disabled="true"] { opacity: 0.5; }
 .terminal-history-thumb { position: absolute; left: var(--space-1); right: var(--space-1); min-width: var(--hairline); border-radius: var(--radius-sm); background: var(--border-strong); }
 .terminal-history-scrollbar:hover .terminal-history-thumb, .terminal-history-scrollbar:focus-visible .terminal-history-thumb { background: var(--text-dim); }
+
+/* A touch screen: no gutter of its own. A finger-wide strip over the last columns with a slim
+   thumb at its edge, drawn only while the view is scrolled back into history or the thumb is
+   held; at the live bottom it lets every touch through to the terminal. */
+@media (pointer: coarse) {
+  .terminal-history-scrollbar { width: var(--space-6); background: transparent; transition: opacity var(--dur-fast) var(--ease-out); }
+  .terminal-history-scrollbar.is-resting { opacity: 0; pointer-events: none; }
+  .terminal-history-thumb { left: auto; right: var(--space-1); width: var(--space-1); background: color-mix(in srgb, var(--text-dim) 70%, transparent); }
+}

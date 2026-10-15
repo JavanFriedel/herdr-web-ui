@@ -326,6 +326,7 @@ export const KO: Record<string, string> = {
   "Connecting…": "연결 중…",
   "Connected": "연결됨",
   "Reconnecting…": "재연결 중…",
+  "Steps": "단계",
   "Last synced {time}": "마지막 동기화 {time}",
   "No network": "네트워크 없음",
   "Can't reach herdr web ui": "herdr web ui에 연결할 수 없음",
