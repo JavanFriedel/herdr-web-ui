@@ -145,6 +145,8 @@ export const JA: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "herdr web ui に接続しています…",
+  "Can't reach herdr web ui": "herdr web ui に接続できません",
+  "No answer after {seconds} s": "{seconds} 秒たっても応答がありません",
   "Close workspace list": "ワークスペース一覧を閉じる",
   "Open workspace list": "ワークスペース一覧を開く",
   "Show workspace list": "ワークスペース一覧を表示",

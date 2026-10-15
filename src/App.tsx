@@ -1,5 +1,5 @@
 import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, TriangleAlert, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
@@ -11,6 +11,7 @@ import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
+import { HEALTH_TRY_MS, bootFailureText } from "./lib/bootFailure.ts";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
@@ -227,6 +228,8 @@ export function App() {
   // the WebSocket, never mounts before that is known
   const [locked, setLocked] = useState<boolean | null>(null);
   const [lockReason, setLockReason] = useState<AccessRefusal | null>(null);
+  // why the first health read failed, while no answer has come yet: the boot screen says it
+  const [bootFailure, setBootFailure] = useState<{ error: unknown } | null>(null);
   /** the code a scanned QR brought along (`?pair=CODE`), taken off the address at once */
   const [pairCode] = useState(() => takePairCode());
   const [auth, setAuth] = useState<HealthAuth | null>(null);
@@ -441,8 +444,12 @@ export function App() {
   snapshotRef.current = snapshot;
 
   const loadHealth = useCallback(async () => {
-    try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
-    catch { /* retain the gate while the connection server restarts */ }
+    const deadline = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(HEALTH_TRY_MS) : undefined;
+    try { const next = await fetchBridgeHealth(deadline); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); setBootFailure(null); }
+    catch (error) {
+      // retain the gate while the connection server restarts; before any answer, the boot screen says why
+      if (lockedRef.current === null) setBootFailure({ error });
+    }
     try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
   }, []);
   const snapshotRequests = useRef(new SnapshotRequests());
@@ -1347,11 +1354,23 @@ export function App() {
             </p>
           </aside>
           <main className="terminal-host">
-            <div className="terminal-placeholder">
-              <div className="terminal-placeholder-inner">
-                <span>{t("Connecting to herdr web ui…")}</span>
+            {bootFailure ? (
+              // the poll keeps asking every few seconds; Retry asks now
+              <div className="terminal-placeholder is-restore-error" role="status">
+                <div className="terminal-placeholder-inner">
+                  <TriangleAlert aria-hidden="true" />
+                  <span>{t("Can't reach herdr web ui")}</span>
+                  <span className="terminal-placeholder-detail">{bootFailureText(bootFailure.error, t)}</span>
+                  <button type="button" className="btn btn-ghost terminal-placeholder-action" onClick={() => void loadHealth()}>{t("Retry")}</button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="terminal-placeholder">
+                <div className="terminal-placeholder-inner">
+                  <span>{t("Connecting to herdr web ui…")}</span>
+                </div>
+              </div>
+            )}
           </main>
         </div>
       </div>

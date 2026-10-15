@@ -143,6 +143,8 @@ export const KO: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "herdr web ui에 연결하는 중…",
+  "Can't reach herdr web ui": "herdr web ui에 연결할 수 없음",
+  "No answer after {seconds} s": "{seconds}초 동안 응답 없음",
   "Close workspace list": "워크스페이스 목록 닫기",
   "Open workspace list": "워크스페이스 목록 열기",
   "Show workspace list": "워크스페이스 목록 보이기",
