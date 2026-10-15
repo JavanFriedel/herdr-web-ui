@@ -25,6 +25,7 @@ import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
+import { ConnectionStrip } from "./components/ConnectionStrip.tsx";
 import { needsYouRows } from "./lib/needsYou.ts";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
@@ -212,6 +213,9 @@ export function App() {
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // when the roster was last read: an offline strip says how old the screen is (a ref: a read every 5 s renders nothing)
+  const syncedAt = useRef<number | null>(null);
+  const [networkOnline, setNetworkOnline] = useState(() => navigator.onLine !== false);
   // a palette layout call a PC's bridge could not take: a line over the pane, gone after a moment as the tab strip's is
   const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
   useEffect(() => {
@@ -451,6 +455,7 @@ export function App() {
         setMachines((previous) => sameData(previous, next) ? previous : next);
         rosterIn();
         setMachineRosterLoaded(true);
+        syncedAt.current = Date.now();
         setError(null); setLocked(false);
       });
     }
@@ -484,10 +489,17 @@ export function App() {
       if (document.visibilityState === "visible" && !disposed) tick();
     };
     document.addEventListener("visibilitychange", onVisible);
+    // the network back is a reason to look at once, as a page shown again is (the sockets wake by themselves, lib/ws.ts)
+    const onOnline = (): void => { setNetworkOnline(true); if (!disposed) tick(); };
+    const onOffline = (): void => setNetworkOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     return () => {
       disposed = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
     };
   }, [load, loadHealth]);
 
@@ -1542,6 +1554,19 @@ export function App() {
         <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
         {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
+        <ConnectionStrip
+          networkOnline={networkOnline}
+          serverError={error}
+          syncedAt={syncedAt.current}
+          machine={selectedMachine ?? null}
+          // before the first health read, and for a PC that is away (its own line says so), herdr is not called silent
+          herdrUp={targetHerdr != null || (selectedMachineId === "local" ? health === null : selectedMachine?.state !== "connected")}
+          paneShown={selectedPane != null}
+          paneConnected={connected}
+          outputStopped={outputStopped}
+          onRetry={() => { void loadHealth(); void load(); }}
+          onOpenPcs={() => { if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen(true); else setSidebarCollapsed(false); }}
+        />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
         {health?.lan_exposure && <LanExposureNotice host={health.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}

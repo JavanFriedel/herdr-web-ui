@@ -954,6 +954,15 @@ One set for both themes: the card is island black wherever it shows.
   written reconnecting/disconnected state. Below `900px` it keeps only its dot; the word stays as
   its accessible text and in its tooltip. While live the chip takes no room and stays in the
   document as a `role="status"` a screen reader can read (`.conn-live`; never `display: none`).
+- The connection strip (`ConnectionStrip.tsx`) is one line at the top of the pane column while
+  what is on screen is not live, most fundamental cause first: **No network**, **Can't reach
+  herdr web ui** (with Retry), the selected PC's state word (with Details, which opens the
+  sidebar), herdr not answering on that PC, then the pane's socket reconnecting once it has been
+  down for 2 s, counting seconds. Each offline line ends with the time of the last roster read.
+  Amber (`--status-working` on its tint) while it comes back by itself, red (`--danger-text` on
+  `--danger-tint`) when it needs the network, the server or a PC; the icon steps round while it
+  waits. Live draws nothing. In the drawer layout (`max-width: 768px`) it replaces the header's
+  chip and the herdr offline pill, which stay in the document and draw nothing.
 
 ### Chat turn (`.chat-turn`)
 - Native conversation rows use LegendList 3.3.5, with the chat view as the single
