@@ -19,6 +19,9 @@ import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jso
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
+import { enableTiming, serverSpan } from "./timing.ts";
+import { withRequestTiming } from "./request-timing.ts";
+import { ReconnectLog, handleReconnectLog } from "./reconnect-log.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
@@ -1678,6 +1681,7 @@ export function createServer(
 
   const requestLog = options.requestLog === undefined ? requestLogFromEnv(options.stateDir ?? defaultStateDir()) : options.requestLog;
   const envPort = process.env["PORT"];
+  const reconnectLog = new ReconnectLog(options.stateDir ?? defaultStateDir());
   const server = Bun.serve<SocketData>({
     port: options.port ?? (envPort ? Number(envPort) : DEFAULT_PORT),
     hostname,
@@ -1690,10 +1694,15 @@ export function createServer(
       return response;
 
       async function answer(): Promise<Response | undefined> {
+      return withRequestTiming(request, async () => {
+      const endStartup = serverSpan("server.startup");
       const startup = portalStartupResult ?? await portalStartup;
+      endStartup();
       if (!startup.ok) return compressResponse(request, errorResponse(startup.error));
+      let endRoute = () => {};
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
-      return compressResponse(request, await (async (): Promise<Response | undefined> => {
+      const response = await (async (): Promise<Response | undefined> => {
+      const endAccess = serverSpan("server.access");
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
@@ -1731,6 +1740,9 @@ export function createServer(
         gated: devices.gated,
       });
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
+      endAccess();
+      if (authenticated) enableTiming();
+      endRoute = serverSpan("server.route");
 
       if (requiresAuth(pathname) && !authenticated) {
         // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
@@ -1808,6 +1820,11 @@ export function createServer(
       }
 
       if (pathname === "/api/auth") return handleAuthRequest(request, token, client);
+      if (pathname === "/api/diagnostics/reconnect") {
+        bunServer.timeout(request, 5);
+        try { return await handleReconnectLog(request, reconnectLog); }
+        catch (error) { return errorResponse(error); }
+      }
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
         try {
           const response = await handleDeviceRequest(request, pathname, devices, access);
@@ -2533,7 +2550,9 @@ export function createServer(
           const etag = `W/"${version}"`;
           const headers = { etag, "cache-control": "no-store" };
           if (request.headers.get("if-none-match")?.replace(/^W\//, "") === etag.slice(2)) return new Response(null, { status: 304, headers });
-          return jsonResponse(conversation, 200, headers);
+          const endSerialize = serverSpan("history.serialize");
+          try { return jsonResponse(conversation, 200, headers); }
+          finally { endSerialize(); }
         } catch (error) {
           if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
           // an unrecognized pane is not an error: the client falls back to the
@@ -2709,7 +2728,12 @@ export function createServer(
 
       // static client - public even when the API is gated, so the login UI can load
       return serveStatic(pathname, request.headers.get("accept-encoding"));
-      })());
+      })();
+      endRoute();
+      const endCompress = serverSpan("server.compress");
+      try { return await compressResponse(request, response); }
+      finally { endCompress(); }
+      });
       }
     },
 

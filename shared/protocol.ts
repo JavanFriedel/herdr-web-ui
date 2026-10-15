@@ -5,7 +5,17 @@
  * published API schema into ./herdr-api.generated.ts and re-exported below, so a
  * herdr upgrade shows up as a failing `bun run generate:types --check` instead of
  * types that quietly disagree with the server.
+ *
+ * Connection/chat GET reads may opt into x-herdr-timing: 1. Authorized, same-origin reads
+ * then include bounded Server-Timing entries (shared/timing.ts); response bodies are unchanged.
+ * Remote bridges without this optional header support still work and provide no remote detail.
+ * GET /api/diagnostics/reconnect returns { slow_ms, records } from a bounded local diagnostic log.
+ * POST /api/diagnostics/reconnect accepts a ReconnectReport with x-herdr-machine: 1, same-origin
+ * and the normal authenticated drive access. Both use shared/reconnect-diagnostics.ts; no messages,
+ * credentials, raw errors or stable target IDs are accepted, and nothing is sent off this PC.
  */
+
+export type { ReconnectReport, ReconnectLogEntry } from "./reconnect-diagnostics.ts";
 
 export type {
   AgentInfo,

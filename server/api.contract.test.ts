@@ -27,6 +27,7 @@ import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts";
 import type { PaneModels } from "../shared/protocol.ts";
 import { opencodeModelFixture } from "./opencode-model.fake.ts";
+import { parseServerTiming } from "../shared/timing.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -171,6 +172,42 @@ describe("OpenCode model controls", () => {
       expect(fixture.calls().filter((call) => call.method === "post")).toHaveLength(3);
     } finally { app?.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
   }, 30_000);
+});
+
+describe("timing diagnostics contract", () => {
+  it("stores slow reconnect reports locally behind the normal access gates", async () => {
+    const report = { id: crypto.randomUUID(), reason: "resume", trigger: "slow", elapsed_ms: 5000,
+      events: [{ id: 1, stage: "ws.probe", clock: "browser", start_ms: 0, duration_ms: 5000, outcome: "pending" }] };
+    const url = `${base()}/api/diagnostics/reconnect`;
+    const post = (extra: Record<string, string> = {}) => fetch(url, { method: "POST", headers: { "content-type": "application/json", ...extra }, body: JSON.stringify(report) });
+    expect((await post()).status).toBe(403);
+    expect((await post({ "x-herdr-machine": "1", origin: "https://untrusted.invalid" })).status).toBe(403);
+    expect((await post({ "x-herdr-machine": "1" })).status).toBe(200);
+    const response = await fetch(url);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect((await response.json()).records).toContainEqual(expect.objectContaining({ id: report.id, trigger: "slow" }));
+  });
+  it("adds timing detail only to opted-in authorized reads, without changing the response", async () => {
+    const ordinary = await fetch(`${base()}/api/session`);
+    expect(ordinary.headers.has("server-timing")).toBe(false);
+    const timed = await fetch(`${base()}/api/session`, { headers: { "x-herdr-timing": "1" } });
+    expect(timed.status).toBe(200);
+    const entries = parseServerTiming(timed.headers.get("server-timing"));
+    expect(entries.some((entry) => entry.stage === "server.total")).toBe(true);
+    expect(entries.some((entry) => entry.stage === "rpc.session.snapshot")).toBe(true);
+    expect(entries.some((entry) => entry.stage === "rpc.decode")).toBe(true);
+    expect(await timed.json()).toHaveProperty("snapshot");
+    const crossSite = await fetch(`${base()}/api/session`, { headers: { "x-herdr-timing": "1", origin: "https://untrusted.invalid" } });
+    expect(crossSite.headers.has("server-timing")).toBe(false);
+    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-timing-auth-"));
+    const gated = createServer({ port: 0, stateDir: state, token: "fictional-timing-token" });
+    try {
+      const refused = await fetch(`http://localhost:${gated.port}/api/session`, { headers: { "x-herdr-timing": "1" } });
+      expect(refused.status).toBe(401); expect(refused.headers.has("server-timing")).toBe(false);
+      expect((await fetch(`http://localhost:${gated.port}/api/diagnostics/reconnect`)).status).toBe(401);
+      expect((await fetch(`http://localhost:${gated.port}/api/diagnostics/reconnect`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: "{}" })).status).toBe(401);
+    } finally { gated.stop(); rmSync(state, { recursive: true, force: true }); }
+  });
 });
 
 describe("Grok conversation API", () => {

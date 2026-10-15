@@ -1,4 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
+import { captureServerTimer } from "../timing.ts";
+import { timingStage } from "../../shared/timing.ts";
 import type {
   AgentIntegration,
   PaneDirection,
@@ -113,14 +115,19 @@ export async function herdrRpc(
   guard?: () => boolean,
 ): Promise<unknown> {
   const id = nextId();
+  const time = captureServerTimer();
+  const endRpc = time(timingStage(`rpc.${method}`) ?? "rpc.other");
+  const endConnect = time("rpc.connect");
+  let endWait: ((failed?: boolean) => void) | undefined;
   return await new Promise<unknown>((resolve, reject) => {
     let settled = false;
     let socket: { end: () => void } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const finish = (fn: () => void) => {
+    const finish = (fn: () => void, failed = true) => {
       if (settled) return;
       settled = true;
+      endConnect(failed); endWait?.(failed); endRpc(failed);
       if (timer) clearTimeout(timer);
       try {
         socket?.end();
@@ -136,19 +143,23 @@ export async function herdrRpc(
     );
 
     const handleLine = (line: string) => {
+      endWait?.();
+      const endDecode = time("rpc.decode");
       let frame: { id?: string; result?: unknown; error?: { code?: string; message?: string } };
       try {
         frame = JSON.parse(line) as typeof frame;
       } catch {
+        endDecode(true);
         finish(() => reject(new HerdrError("bad_frame", `herdr sent unparseable frame: ${line.slice(0, 200)}`)));
         return;
       }
+      endDecode();
       if (frame.error) {
         const { code = "herdr_error", message = "herdr request failed" } = frame.error;
         finish(() => reject(new HerdrError(code, message)));
         return;
       }
-      finish(() => resolve(frame.result));
+      finish(() => resolve(frame.result), false);
     };
 
     const onData = makeLineReader(handleLine);
@@ -168,6 +179,7 @@ export async function herdrRpc(
       },
     })
       .then((sock) => {
+        endConnect();
         socket = sock;
         if (settled) {
           try {
@@ -181,6 +193,7 @@ export async function herdrRpc(
           finish(() => reject(new HerdrError("cancelled", `herdr ${method} was not sent: the sender may no longer send`)));
           return;
         }
+        endWait = time("rpc.wait");
         sock.write(`${JSON.stringify({ id, method, params })}\n`);
       })
       .catch((err: Error) => {

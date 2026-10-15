@@ -16,6 +16,7 @@ import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsRespo
 import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
 import type { PaneModels, PaneModelSelection } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
+import { SLOW_RECONNECT_MS } from "../../shared/reconnect-diagnostics.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { closeLayoutPane, resizeLayout, setLayoutSplitRatio, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
@@ -635,6 +636,12 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   const path = url.pathname;
   const query = url.searchParams;
   const paneId = query.get("pane_id") ?? "";
+
+  if (path === "/api/diagnostics/reconnect") {
+    if (method === "GET") return json({ slow_ms: SLOW_RECONNECT_MS, records: [] }, 200, { "cache-control": "no-store" });
+    if (method === "POST") return json({ ok: true });
+    return error("method_not_allowed", "Use GET or POST", 400);
+  }
 
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
