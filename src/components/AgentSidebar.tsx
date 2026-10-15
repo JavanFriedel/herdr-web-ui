@@ -191,8 +191,8 @@ function agentRowTitle({ pane, agent }: SidebarAgent): string {
 }
 
 /**
- * Needs you: the agents on every connected PC waiting for an answer, then the finishes not opened
- * here yet (lib/needsYou.ts). It heads the sidebar so a phone opening the drawer from an alert
+ * Needs you: the agents on every connected PC waiting for an answer, then the ones herdr still
+ * marks finished (lib/needsYou.ts). It heads the sidebar so a phone opening the drawer from an alert
  * lands on what asked, and it is gone when nothing does. A row opens its pane, as an agent row does.
  */
 export function NeedsYou({ rows, machines, onSelect }: { rows: readonly NeedsYouRow[]; machines: readonly Machine[]; onSelect(machineId: string, paneId: string): void }) {

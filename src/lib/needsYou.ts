@@ -1,7 +1,7 @@
 /**
  * Needs you: the agents across every connected PC that wait on the user, for the top of the
  * sidebar and the count on the drawer's toggle. An agent waiting for an answer comes first, then
- * a finish not opened here yet, each newest first by herdr's state_change_seq. The pane on screen
+ * one herdr still marks finished, each newest first by herdr's state_change_seq. The pane on screen
  * is left out: it is already in front of the user.
  */
 import type { Machine } from "../../shared/machines.ts";

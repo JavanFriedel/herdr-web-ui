@@ -117,6 +117,13 @@ describe("lock", () => {
     }
   });
 
+  it("still refuses a silent listener instead of assuming a connection timeout means a free port", async () => {
+    const other = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    try {
+      expect(await lock(other.port, 222)).toEqual({ heldBy: Number.NaN });
+    } finally { other.stop(true); }
+  });
+
   it("is free again once the run that held it is killed", async () => {
     const port = await freePort();
     const holder = Bun.spawn([process.execPath, "-e", `const { lock } = await import(${JSON.stringify(fileURLToPath(new URL("./check.ts", import.meta.url)))}); await lock(${port}, 111, "/a"); console.log("HELD"); setInterval(() => {}, 1000);`], { stdout: "pipe" });
@@ -250,7 +257,7 @@ describe("slots", () => {
     const busy = await lock(base, 111, "/a");
     try {
       let waits = 0;
-      const late = await acquireWaiting({ slots: 1, scan: 3, base, pid: 222, checkout: "/b" }, { waitMs: 60, pollMs: 20, onWait: () => { waits += 1; } });
+      const late = await acquireWaiting({ slots: 1, scan: 3, base, pid: 222, checkout: "/b" }, { waitMs: 500, pollMs: 20, onWait: () => { waits += 1; } });
       expect(late).toEqual({ refused: "busy", holders: [{ port: base, heldBy: 111, checkout: "/a" }] });
       expect(waits).toBe(1);
       const now = await acquireWaiting({ slots: 2, scan: 3, base, pid: 222, checkout: "/a" }, { waitMs: 10_000, pollMs: 20, onWait: () => { waits += 1; } });
