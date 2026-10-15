@@ -30,6 +30,7 @@ import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
+import { ChatReadTimeoutError } from "../lib/chatReadDeadline.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { attachmentFileName, mentionFileName, type GalleryImage } from "../lib/imageViewer.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
@@ -44,6 +45,7 @@ import { followGlides } from "../lib/followScroll.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { ConversationRefresh } from "../lib/conversationRefresh.ts";
+import { connectionDiagnostics, type DiagnosticSpan } from "../lib/connectionDiagnostics.ts";
 import { usePageVisible } from "../lib/visibility.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { useFacesArrived } from "../lib/fontFaces.ts";
@@ -726,7 +728,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   const visible = usePageVisible();
   /** the answer last laid out: an unchanged poll (a 304) hands back this very object */
   const lastAnswer = useRef<ConversationResponse | null>(null);
-  const [conversationRefresh] = useState(() => new ConversationRefresh());
+  const [conversationRefresh] = useState(() => new ConversationRefresh({ machineId, paneId }));
   const onMetadataRef = useRef(onMetadata);
   onMetadataRef.current = onMetadata;
   const [state, setState] = useState<ChatState>(EMPTY_STATE);
@@ -782,6 +784,17 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   const pagingAway = useRef(false);
   const lastScrollTop = useRef(0);
   const signature = useRef("");
+  const diagnosticCommit = useRef<DiagnosticSpan | null>(null);
+  const [diagnosticRevision, setDiagnosticRevision] = useState(0);
+  useLayoutEffect(() => {
+    const commit = diagnosticCommit.current;
+    diagnosticCommit.current = null;
+    if (!commit) return;
+    commit.end();
+    const frame = commit.child("chat.next-frame");
+    const request = requestAnimationFrame(() => frame.end());
+    return () => { cancelAnimationFrame(request); frame.end("cancelled"); };
+  }, [diagnosticRevision]);
   // Older pages sit above the newest one. Once any shows, the newest page is
   // polled from its start at that moment, so the two always meet.
   const [older, setOlder] = useState<ConversationTurn[]>([]);
@@ -885,6 +898,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
+    const controller = new AbortController();
     /** The turns between the held start and where the newest page now starts, a page at a time; null when they cannot be joined. */
     const turnsBetween = async (held: string | null, start: string): Promise<ConversationTurn[] | null> => {
       const pages: ConversationTurn[][] = [];
@@ -892,7 +906,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       try {
         for (let step = 0; step < 32 && before !== held; step++) {
           if (cancelled) return null;
-          const page = await fetchPaneConversation(paneId, { before, ...(held === null ? {} : { since: held }) });
+          const page = await fetchPaneConversation(paneId, { before, signal: controller.signal, ...(held === null ? {} : { since: held }) });
           if (page.cursor === held) {
             pages.unshift(page.turns);
             return pages.flat();
@@ -907,23 +921,32 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       return before === held ? pages.flat() : null;
     };
     const read = async (): Promise<void> => {
+      const timing = connectionDiagnostics.span("history.read", { machineId, paneId });
+      const recordCommit = () => {
+        if (!connectionDiagnostics.active()) return;
+        diagnosticCommit.current?.end("cancelled");
+        diagnosticCommit.current = timing.child("chat.commit");
+        setDiagnosticRevision((revision) => revision + 1);
+      };
       let generation = olderGeneration.current;
       try {
         let conversation;
         try {
-          conversation = await fetchPaneConversation(paneId, heldFrom.current === null ? undefined : { from: heldFrom.current });
+          conversation = await fetchPaneConversation(paneId, { ...(heldFrom.current === null ? {} : { from: heldFrom.current }), signal: controller.signal });
         } catch (cause) {
           // a new session or a Codex backtrack replaced the transcript the older pages came from
           if (heldFrom.current === null || !(cause instanceof ApiError) || cause.status !== 409) throw cause;
           if (cancelled || generation !== olderGeneration.current) return;
           dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
           generation = olderGeneration.current;
-          conversation = await fetchPaneConversation(paneId);
+          conversation = await fetchPaneConversation(paneId, { signal: controller.signal });
         }
         if (cancelled || generation !== olderGeneration.current) return;
         // the timeline's chunk is in hand before any turn is: the list mounts once, with the refs bound
         if (conversation.source !== "scrollback" && loadedChatTimeline() === null) {
-          await loadChatTimeline();
+          const chunk = timing.child("history.chunk");
+          try { await loadChatTimeline(); chunk.end(); }
+          catch (cause) { chunk.end("error"); throw cause; }
           if (cancelled || generation !== olderGeneration.current) return;
         }
         if (history.current !== conversation.history_id) {
@@ -932,14 +955,16 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
           pagingAway.current = false; stickToBottom.current = true; setNewMessages(false); setAway(false);
         }
         // a 304 hands back the answer already shown: nothing to compare or lay out again
-        if (conversation === lastAnswer.current) { setError(null); setErrorStatus(null); return; }
+        if (conversation === lastAnswer.current) { timing.mark("chat.cached"); setError(null); setErrorStatus(null); recordCommit(); return; }
         // The newest page moved past the held start: the turns in between join the older
         // pages and the newest page is held from its new start, so no poll reads more than a page.
         const previous = lastAnswer.current;
         const held = heldFrom.current ?? (previous?.source !== "scrollback" && previous?.history_id === conversation.history_id ? previous?.cursor : undefined);
         let moved: ConversationTurn[] = [];
         if (held !== undefined && conversation.source !== "scrollback" && typeof conversation.cursor === "string" && conversation.cursor !== held) {
+          const gap = timing.child("history.gap");
           const between = await turnsBetween(held, conversation.cursor);
+          gap.end(between === null ? "error" : "ok");
           if (cancelled || generation !== olderGeneration.current) return;
           if (between === null) {
             dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
@@ -965,7 +990,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
               ? { source: "scrollback", turns: [], messages: [], truncated: false } : previous);
             signature.current = ""; lastAnswer.current = null;
           }
-          const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES);
+          const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES, controller.signal);
           if (cancelled || generation !== olderGeneration.current) return;
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
         }
@@ -979,27 +1004,36 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
             slots.current = { ...slots.current, rows: slots.current.rows.slice(0, count) };
           }
         }
+        const prepare = timing.child("history.prepare");
         const nextSignature = JSON.stringify(next);
+        prepare.end();
         if (nextSignature !== signature.current) {
           if (signature.current !== "" && !stickToBottom.current) setNewMessages(true);
           signature.current = nextSignature;
           setState(next);
         }
         setError(null); setErrorStatus(null); setLoaded(true);
+        recordCommit();
         // only an answer laid out in full is skipped when it comes back unchanged: a read
         // cancelled mid-way (a pane switch, the page hidden during a gap fill) is redone
         lastAnswer.current = conversation;
       } catch (cause) {
+        if (!cancelled && (cause instanceof ChatReadTimeoutError || cause instanceof ApiError && ["timeout", "machine_timeout"].includes(cause.code ?? ""))) timing.mark("http.timeout");
+        timing.end(cancelled ? "cancelled" : "error");
         if (cancelled || generation !== olderGeneration.current) return;
         setLoaded(true);
         setError(cause instanceof Error ? cause.message : String(cause));
         setErrorStatus(cause instanceof ApiError ? cause.status : null);
+      } finally {
+        timing.end(cancelled ? "cancelled" : "ok");
       }
     };
     conversationRefresh.setRead(read);
     onConversationWatch?.(paneId, true);
     return () => {
       cancelled = true;
+      // A suspended page's stale HTTP read must not hold the resumed reader until its 30 s deadline.
+      controller.abort();
       // Older pages queued behind this reader must not start for a hidden/replaced screen.
       olderGeneration.current += 1;
       loadingOlder.current = false; setOlderState("idle");

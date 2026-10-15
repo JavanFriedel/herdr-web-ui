@@ -1,3 +1,5 @@
+import { connectionDiagnostics, type DiagnosticSpan, type DiagnosticTarget } from "./connectionDiagnostics.ts";
+
 /** With pushes, a lost one still gets a full conversation read. */
 const BACKSTOP_MS = 10_000;
 
@@ -16,9 +18,12 @@ export class ConversationRefresh {
   private newestAt = -Infinity;
   private pushes = false;
   private readonly pages: (() => Promise<void>)[] = [];
+  private queueTiming?: DiagnosticSpan;
+  constructor(private readonly diagnosticTarget?: DiagnosticTarget) {}
 
   /** Replace a cancelled reader without letting its still-pending REST request overlap this one. */
   setRead(read: () => Promise<void>): void {
+    this.queueTiming?.end("cancelled"); this.queueTiming = undefined;
     this.clearTimer();
     this.pending = false;
     this.invalidated = false;
@@ -39,6 +44,7 @@ export class ConversationRefresh {
 
   refresh(): void {
     if (this.read === null) return;
+    this.queueTiming ??= connectionDiagnostics.span("history.queue", this.diagnosticTarget);
     this.clearTimer();
     this.pending = true;
     this.invalidated = false;
@@ -48,6 +54,7 @@ export class ConversationRefresh {
   /** The first push after idle reads immediately; further pushes share a fixed trailing deadline. */
   invalidate(): void {
     if (this.read === null || this.invalidated) return;
+    this.queueTiming ??= connectionDiagnostics.span("history.queue", this.diagnosticTarget);
     this.invalidated = true;
     this.clearTimer();
     void this.drain();
@@ -69,6 +76,7 @@ export class ConversationRefresh {
 
   /** Hidden/unmounted readers leave no timer or pending refresh; an in-flight read finishes first. */
   stop(): void {
+    this.queueTiming?.end("cancelled"); this.queueTiming = undefined;
     this.read = null;
     this.pending = false;
     this.invalidated = false;
@@ -98,6 +106,7 @@ export class ConversationRefresh {
         if (!this.pending && performance.now() < this.newestAt + INVALIDATION_MS) break;
         this.pending = false;
         this.invalidated = false;
+        this.queueTiming?.end(); this.queueTiming = undefined;
         // Monotonic elapsed time keeps wall-clock corrections out of the rate bound.
         this.newestAt = performance.now();
         await this.read();

@@ -63,6 +63,7 @@ import { agentTaskResult, claudePeerId, claudePeerNotice, isContextClear, MAX_TU
 import { forgetSubagents, lineNotifications, subagentDetails, taskNotification, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { readsStartScreen, startScreenMetadata } from "./start-screen.ts";
+import { serverSpan } from "./timing.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -1427,7 +1428,9 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   };
 
   try {
-    resolved = await paneTranscript(paneId, codexHome, snapshot, devinDbPath, opencodeDb, hermesHome, grokHome);
+    const endResolve = serverSpan("history.resolve");
+    try { resolved = await paneTranscript(paneId, codexHome, snapshot, devinDbPath, opencodeDb, hermesHome, grokHome); }
+    finally { endResolve(); }
     launchedAgents.forget(paneId);
   } catch (error) {
     if (error instanceof ConversationNotStarted) { launchedAgents.forget(paneId); return await onNotStarted(error); }
@@ -1453,7 +1456,10 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   if (resolved.source === "opencode-transcript") {
     // its caches are keyed by store and session, which is what the pane is remembered against
     rememberPaneRead(paneId, opencodeReadKey(resolved.path, resolved.session));
-    const answer = opencodeConversation(resolved.path, resolved.session, page);
+    const endStore = serverSpan("history.store");
+    let answer;
+    try { answer = opencodeConversation(resolved.path, resolved.session, page); }
+    finally { endStore(); }
     if (answer.kind === "history_changed") throw new HistoryChanged();
     if (answer.kind === "unavailable") throw new ConversationUnavailable(answer.reason);
     const { kind: _kind, signature, ...conversation } = answer;
@@ -1476,7 +1482,10 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     : resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
     : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
   rememberPaneRead(paneId, resolved.path);
-  const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
+  const endStore = serverSpan("history.store");
+  let answer;
+  try { answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome); }
+  finally { endStore(); }
   const status = snapshot.panes.find((pane) => pane.pane_id === paneId)?.agent_status;
   if (resolved.source === "grok-transcript" && answer.turns.length === 0 && page.before === undefined
     && (status === "working" || status === "blocked")) {

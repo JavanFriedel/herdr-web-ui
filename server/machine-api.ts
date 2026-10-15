@@ -4,6 +4,8 @@ import { MachineManager } from "./machines.ts";
 import { canSendSecret, sameOrigin } from "./machine-security.ts";
 import { isJsonObject, jsonResponse } from "./http.ts";
 import { crossSiteFileRead } from "./file-view.ts";
+import { TIMING_HEADER, parseServerTiming } from "../shared/timing.ts";
+import { addRemoteTimings, serverSpan, timingEnabled } from "./timing.ts";
 
 const fail = (code: string, message: string, status: number) => jsonResponse({ error: { code, message } }, status);
 export const MACHINE_PROXY_PATH = /^(?:session|agents|integrations|pane\/(?:read|scroll|find|selection|conversation(?:\/image|\/tool-output)?|commands|models|model|files|omo-tasks|plan|prompt|prompt\/answer|input|keys|close|rename|image|split|zoom|swap|resize|clear|move|focus)|workspace\/(?:create|rename|move|close|directories|diff\/files|diff\/file)|worktree\/(?:create|list|open|remove)|tab\/(?:create|rename|close|move)|layout\/ratio|agent\/rename|plugins\/actions|plugin\/action|fs\/(?:stat|file))$/;
@@ -116,6 +118,7 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       // a remote conversation answers 304 when unchanged, as a local one does
       const ifNoneMatch = request.headers.get("if-none-match");
       if (ifNoneMatch) headers.set("if-none-match", ifNoneMatch);
+      if (timingEnabled()) headers.set(TIMING_HEADER, "1");
       const abort = new AbortController();
       if (path === "fs/file") {
         // a file (a video, say) streams through, with its ranges, never held here; it can
@@ -133,14 +136,21 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
         } catch (error) { return transportFailure(id, path, error); }
       }
       const untrack = manager.trackTerminal(id, () => abort.abort());
+      const endHeaders = serverSpan("bridge.headers");
       try {
         const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
+        endHeaders();
+        addRemoteTimings(parseServerTiming(response.headers.get("server-timing")));
         const etag = response.headers.get("etag");
-        return new Response(response.status === 304 ? null : await response.arrayBuffer(), { status: response.status, headers: {
+        const endBody = serverSpan("bridge.body");
+        let body: ArrayBuffer | null;
+        try { body = response.status === 304 ? null : await response.arrayBuffer(); }
+        finally { endBody(); }
+        return new Response(body, { status: response.status, headers: {
           "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store", ...(etag ? { etag } : {}),
         } });
       } catch (error) { return transportFailure(id, path, error); }
-      finally { untrack(); }
+      finally { endHeaders(); untrack(); }
     }
     return fail("not_found", "Unknown PC endpoint", 404);
   } catch (e) { return fail("machine_request_failed", e instanceof Error ? e.message : String(e), 400); }

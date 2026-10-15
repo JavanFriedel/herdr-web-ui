@@ -28,3 +28,20 @@ test("a remote PC's read, which crosses the machine proxy, waits twice as long a
   expect(chatReadDeadlineMs("local")).toBe(15_000);
   expect(chatReadDeadlineMs("studio-mac")).toBe(30_000);
 });
+
+test("visibility cancellation releases a read immediately even when its fetch ignores abort", async () => {
+  const controller = new AbortController();
+  let child: AbortSignal | undefined;
+  const read = withChatReadDeadline((signal) => { child = signal; return new Promise(() => {}); }, 30_000, controller.signal);
+  controller.abort();
+  await expect(read).rejects.toMatchObject({ name: "AbortError" });
+  expect(child?.aborted).toBe(true);
+  expect(await withChatReadDeadline(async () => "resumed", 30_000)).toBe("resumed");
+});
+
+test("an already-cancelled reader starts no HTTP work", async () => {
+  const controller = new AbortController(); controller.abort();
+  let called = false;
+  await expect(withChatReadDeadline(async () => { called = true; }, 30_000, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+  expect(called).toBe(false);
+});

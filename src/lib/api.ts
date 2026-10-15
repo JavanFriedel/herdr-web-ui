@@ -72,6 +72,7 @@ import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
 import { chatReadDeadlineMs, withChatReadDeadline } from "./chatReadDeadline.ts";
+import { diagnosticFetch, diagnosticJson } from "./connectionDiagnostics.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -182,7 +183,7 @@ async function errorFrom(url: string, response: Response): Promise<ApiError> {
   let detail = response.statusText;
   let code: string | null = null;
   try {
-    const body = (await response.json()) as { error?: { code?: string; message?: string } };
+    const body = await diagnosticJson<{ error?: { code?: string; message?: string } }>(response);
     if (body.error?.message) detail = body.error.message;
     if (body.error?.code) code = body.error.code;
   } catch {
@@ -192,9 +193,9 @@ async function errorFrom(url: string, response: Response): Promise<ApiError> {
 }
 
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await diagnosticFetch(url, init);
   if (!response.ok) throw await errorFrom(url, response);
-  return (await response.json()) as T;
+  return diagnosticJson<T>(response);
 }
 
 export async function fetchSession(machineId = "local"): Promise<SessionSnapshot> {
@@ -212,10 +213,10 @@ const wrappedOnly = new Set<string>();
  * rejoins the rows the terminal soft-wrapped, so a line reflows to the chat's
  * width instead of breaking where the pty's columns ended.
  */
-export async function fetchPaneTranscript(paneId: string, lines: number, machineId = "local"): Promise<PaneReadResult> {
+export async function fetchPaneTranscript(paneId: string, lines: number, machineId = "local", signal?: AbortSignal): Promise<PaneReadResult> {
   const read = async (source: "recent" | "recent_unwrapped"): Promise<PaneReadResult> => {
     const query = new URLSearchParams({ pane_id: paneId, source, format: "text", lines: String(lines) });
-    return (await withChatReadDeadline((signal) => getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`), { signal }), chatReadDeadlineMs(machineId))).read;
+    return (await withChatReadDeadline((next) => getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`), { signal: next }), chatReadDeadlineMs(machineId), signal)).read;
   };
   if (wrappedOnly.has(machineId)) return read("recent");
   try {
@@ -228,7 +229,7 @@ export async function fetchPaneTranscript(paneId: string, lines: number, machine
 }
 
 /** Which turns (ConversationResponse.cursor): the page `before` a cursor, not past `since`; the newest ones `from` a held start. */
-export type ConversationPageQuery = { before?: string; since?: string; from?: string };
+export type ConversationPageQuery = { before?: string; since?: string; from?: string; signal?: AbortSignal };
 
 /**
  * The last answer per newest-page conversation URL and its ETag. The chat reads it again on
@@ -287,11 +288,11 @@ export async function fetchPaneConversation(paneId: string, machineId = "local",
   const polled = page.before === undefined;
   const known = polled ? conversationAnswers.get(url) : undefined;
   const { response, body } = await withChatReadDeadline(async (signal) => {
-    const response = await fetch(url, { cache: "no-store", signal, ...(known ? { headers: { "if-none-match": known.etag } } : {}) });
+    const response = await diagnosticFetch(url, { cache: "no-store", signal, ...(known ? { headers: { "if-none-match": known.etag } } : {}) });
     if (response.status === 304 && known) return { response, body: known.body };
     if (!response.ok) throw await errorFrom(url, response);
-    return { response, body: (await response.json()) as ConversationResponse };
-  }, chatReadDeadlineMs(machineId));
+    return { response, body: await diagnosticJson<ConversationResponse>(response) };
+  }, chatReadDeadlineMs(machineId), page.signal);
   // Cache changes occur after the bounded read: a late, aborted answer cannot replace it.
   if (response.status === 304 && known) {
     conversationAnswers.delete(url);

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it, jest } from "bun:test";
 import { HerdrSocket } from "./ws.ts";
 import type { PendingMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
+import { connectionDiagnostics } from "./connectionDiagnostics.ts";
 
 /** A WebSocket the test drives: it opens, receives and records what the client sends. */
 class FakeSocket {
@@ -40,6 +41,22 @@ afterAll(() => { globals.WebSocket = before.WebSocket; globals.window = before.w
 const snapshot = (features: string[]) => ({ type: "snapshot", snapshot: { workspaces: [], panes: [], agents: [], layouts: [] }, features });
 const secrets = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "secret");
 const submissions = (socket: FakeSocket) => socket.sent.filter((frame) => ["submit", "input", "keys"].includes(frame.type));
+
+it("records reconnect readiness and unsupported probes without exporting output or identifiers", () => {
+  connectionDiagnostics.setEnabled(true);
+  const client = new HerdrSocket("ws://test/ws?machine_id=private-machine");
+  try {
+    client.connect(); const socket = FakeSocket.last; socket.open(); socket.receive(snapshot([]));
+    client.attach("private-pane", 80, 24);
+    socket.receive({ type: "pty-data", pane_id: "private-pane", data: "private-terminal-content" });
+    client.wake();
+    const output = JSON.stringify(connectionDiagnostics.state());
+    expect(output).toContain("ws.connect"); expect(output).toContain("ws.snapshot");
+    expect(output).toContain("ws.no-ping"); expect(output).toContain("ws.first-output");
+    expect(output).not.toContain("private-");
+    expect(submissions(socket)).toEqual([]);
+  } finally { client.close(); connectionDiagnostics.setEnabled(false); connectionDiagnostics.clear(); }
+});
 
 it("refuses clear-and-send on a legacy bridge without sending payload or Enter", async () => {
   const client = new HerdrSocket("ws://test/ws");
@@ -1442,5 +1459,87 @@ it("counts a page that connected while hidden as put away until it is first show
   } finally {
     client.close();
     page.restore();
+  }
+});
+
+it("asks a socket back from a long hide with a short probe, and its drop does not lengthen later probes", () => {
+  jest.useFakeTimers();
+  const page = fakePage();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    page.hide();
+    jest.advanceTimersByTime(30_000);
+    page.show();
+    expect(pings(socket)).toHaveLength(1);
+    // 1.5s per ping: a socket the lock killed is let go of in 3s, not 6s or more
+    jest.advanceTimersByTime(1_500);
+    expect(pings(socket)).toHaveLength(2);
+    expect(FakeSocket.last).toBe(socket);
+    jest.advanceTimersByTime(1_500);
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    fresh.open();
+    fresh.receive(snapshot(["ping"]));
+    // an ordinary probe afterwards keeps the 3s deadline: the drop was the sleep's, not a slow link's
+    client.wake();
+    jest.advanceTimersByTime(5_999);
+    expect(FakeSocket.last).toBe(fresh);
+    jest.advanceTimersByTime(1);
+    expect(FakeSocket.last).not.toBe(fresh);
+  } finally {
+    client.close();
+    page.restore();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps the ordinary probe for a page hidden only briefly, and a resumed socket that answers stays", () => {
+  jest.useFakeTimers();
+  const page = fakePage();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    page.hide();
+    jest.advanceTimersByTime(2_000);
+    page.show();
+    jest.advanceTimersByTime(2_999);
+    expect(pings(socket)).toHaveLength(1);
+    socket.receive({ type: "pong", id: pings(socket)[0]!.id as number });
+    expect(client.state).toBe("open");
+    page.hide();
+    jest.advanceTimersByTime(60_000);
+    page.show();
+    socket.receive({ type: "pong", id: pings(socket).at(-1)!.id as number });
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+    expect(client.state).toBe("open");
+  } finally {
+    client.close();
+    page.restore();
+    jest.useRealTimers();
+  }
+});
+
+it("gives up an attempt that went out while the page was hidden when it is shown, and keeps one started after", () => {
+  jest.useFakeTimers();
+  const page = fakePage();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    page.hide();
+    client.connect();
+    const asleep = FakeSocket.last;
+    jest.advanceTimersByTime(3_000);
+    page.show();
+    // it went out asleep (or on the network before): a fresh attempt starts now instead of waiting out 8s
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(asleep);
+    expect(asleep.readyState).toBe(3);
+    // a second wake of the same return (pageshow) leaves the fresh attempt alone
+    client.wake();
+    expect(FakeSocket.last).toBe(fresh);
+    expect(fresh.readyState).toBe(FakeSocket.CONNECTING);
+  } finally {
+    client.close();
+    page.restore();
+    jest.useRealTimers();
   }
 });

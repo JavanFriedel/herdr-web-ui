@@ -69,7 +69,7 @@ describe("browser lane", () => {
   it("summarizes every script and exits zero on success without enabling local evidence", async () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
-    expect(rows(text)).toHaveLength(51);
+    expect(rows(text)).toHaveLength(52);
     expect(rows(text).filter((row) => row.script === "scripts/opencode-model-demo-regression.ts")).toHaveLength(1);
     expect(rows(text).map((row) => row.script)).toContain("scripts/chat-virtual-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pwa-update-browser-qa.ts");
@@ -88,6 +88,7 @@ describe("browser lane", () => {
     expect(rows(text).map((row) => row.script)).toContain("scripts/palette-machines-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/restored-draft-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/render-crash-demo-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/reconnect-diagnostics-demo-regression.ts");
     expect(rows(text).every((row) => row.code === 0 && row.seconds >= 0)).toBe(true);
     expect(rows(text).at(-1)?.script).toBe("scripts/herdr-profiles-browser-qa.ts");
     expect(evidence).toBe(false);

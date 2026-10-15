@@ -14,9 +14,11 @@ import { SettingsProvider } from "./lib/settings.ts";
 import { isReportableWindowError } from "./lib/uncaughtErrors.ts";
 import "./lib/viewport.ts";
 import { watchSheetExits } from "./lib/sheets.ts";
+import { watchConnectionDiagnostics } from "./lib/connectionDiagnostics.ts";
 
 // a phone's sheets drop back down however they close (lib/sheets.ts)
 watchSheetExits();
+watchConnectionDiagnostics();
 
 const container = document.getElementById("root");
 if (!container) throw new Error("#root is missing from index.html");
