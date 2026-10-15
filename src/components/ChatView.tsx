@@ -31,6 +31,7 @@ import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { ChatReadTimeoutError } from "../lib/chatReadDeadline.ts";
+import { onNetworkUp } from "../lib/networkUp.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { attachmentFileName, mentionFileName, type GalleryImage } from "../lib/imageViewer.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
@@ -899,6 +900,10 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     if (!visible) return;
     let cancelled = false;
     const controller = new AbortController();
+    // each read has its own abort, tied to the effect's: the network coming back replaces a read
+    // stuck on the dead path (lib/networkUp.ts) without ending the reader
+    let reading: { controller: AbortController; startedAt: number } | null = null;
+    const readSignal = (): AbortSignal => reading?.controller.signal ?? controller.signal;
     /** The turns between the held start and where the newest page now starts, a page at a time; null when they cannot be joined. */
     const turnsBetween = async (held: string | null, start: string): Promise<ConversationTurn[] | null> => {
       const pages: ConversationTurn[][] = [];
@@ -906,7 +911,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       try {
         for (let step = 0; step < 32 && before !== held; step++) {
           if (cancelled) return null;
-          const page = await fetchPaneConversation(paneId, { before, signal: controller.signal, ...(held === null ? {} : { since: held }) });
+          const page = await fetchPaneConversation(paneId, { before, signal: readSignal(), ...(held === null ? {} : { since: held }) });
           if (page.cursor === held) {
             pages.unshift(page.turns);
             return pages.flat();
@@ -921,6 +926,10 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       return before === held ? pages.flat() : null;
     };
     const read = async (): Promise<void> => {
+      const own = new AbortController();
+      const endWithEffect = () => own.abort();
+      controller.signal.addEventListener("abort", endWithEffect, { once: true });
+      reading = { controller: own, startedAt: Date.now() };
       const timing = connectionDiagnostics.span("history.read", { machineId, paneId });
       const recordCommit = () => {
         if (!connectionDiagnostics.active()) return;
@@ -932,14 +941,14 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       try {
         let conversation;
         try {
-          conversation = await fetchPaneConversation(paneId, { ...(heldFrom.current === null ? {} : { from: heldFrom.current }), signal: controller.signal });
+          conversation = await fetchPaneConversation(paneId, { ...(heldFrom.current === null ? {} : { from: heldFrom.current }), signal: readSignal() });
         } catch (cause) {
           // a new session or a Codex backtrack replaced the transcript the older pages came from
           if (heldFrom.current === null || !(cause instanceof ApiError) || cause.status !== 409) throw cause;
           if (cancelled || generation !== olderGeneration.current) return;
           dropOlder(); setState(EMPTY_STATE); setLoaded(false); signature.current = ""; lastAnswer.current = null;
           generation = olderGeneration.current;
-          conversation = await fetchPaneConversation(paneId, { signal: controller.signal });
+          conversation = await fetchPaneConversation(paneId, { signal: readSignal() });
         }
         if (cancelled || generation !== olderGeneration.current) return;
         // the timeline's chunk is in hand before any turn is: the list mounts once, with the refs bound
@@ -990,7 +999,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
               ? { source: "scrollback", turns: [], messages: [], truncated: false } : previous);
             signature.current = ""; lastAnswer.current = null;
           }
-          const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES, controller.signal);
+          const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES, readSignal());
           if (cancelled || generation !== olderGeneration.current) return;
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
         }
@@ -1019,19 +1028,31 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
         lastAnswer.current = conversation;
       } catch (cause) {
         if (!cancelled && (cause instanceof ChatReadTimeoutError || cause instanceof ApiError && ["timeout", "machine_timeout"].includes(cause.code ?? ""))) timing.mark("http.timeout");
-        timing.end(cancelled ? "cancelled" : "error");
+        timing.end(cancelled || own.signal.aborted ? "cancelled" : "error");
         if (cancelled || generation !== olderGeneration.current) return;
+        // replaced because the network came back: the read after it says how things are
+        if (own.signal.aborted) return;
         setLoaded(true);
         setError(cause instanceof Error ? cause.message : String(cause));
         setErrorStatus(cause instanceof ApiError ? cause.status : null);
       } finally {
         timing.end(cancelled ? "cancelled" : "ok");
+        controller.signal.removeEventListener("abort", endWithEffect);
+        if (reading?.controller === own) reading = null;
       }
     };
+    // the network works again: a read sent well before that waits on a dead path, so a fresh one goes now
+    const stopNetworkUp = onNetworkUp((sentAt) => {
+      if (reading === null || reading.startedAt >= sentAt - 1_000 || reading.controller.signal.aborted) return;
+      connectionDiagnostics.mark("history.network-up", { machineId, paneId });
+      reading.controller.abort();
+      conversationRefresh.refresh();
+    });
     conversationRefresh.setRead(read);
     onConversationWatch?.(paneId, true);
     return () => {
       cancelled = true;
+      stopNetworkUp();
       // A suspended page's stale HTTP read must not hold the resumed reader until its 30 s deadline.
       controller.abort();
       // Older pages queued behind this reader must not start for a hidden/replaced screen.
