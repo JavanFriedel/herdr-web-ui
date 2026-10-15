@@ -1,5 +1,6 @@
 import type { ClientMessage, ClientRole, PendingMessage, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
+import { connectionDiagnostics, type DiagnosticSpan, type DiagnosticTarget } from "./connectionDiagnostics.ts";
 
 type Handler = (message: ServerMessage) => void;
 
@@ -41,6 +42,14 @@ const CONNECT_TIMEOUT_MAX_MS = 30_000;
  */
 const PROBE_TIMEOUT_MS = 3_000;
 const PROBE_TIMEOUT_MAX_MS = 12_000;
+/**
+ * A page shown again after LONG_HIDE_MS or more (a phone locked, the app put away) most likely
+ * comes back to a socket its OS or a NAT let go of. Its probe then waits RESUME_PROBE_MS per ping,
+ * not a deadline grown by earlier drops: the user is looking at a spinner, and a wrong drop only
+ * costs a reconnect. A drop it ends in does not grow later probes' deadlines.
+ */
+const LONG_HIDE_MS = 10_000;
+const RESUME_PROBE_MS = 1_500;
 const PROBE_OVERDUE_MS = 2_000;
 const IDLE_PROBE_MS = 20_000;
 const IDLE_CHECK_MS = 5_000;
@@ -145,6 +154,7 @@ export class HerdrSocket {
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
   private readonly onWake = (): void => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      if (!this.pageHidden) this.hiddenAt = Date.now();
       this.pageHidden = true;
       // a deadline must not run out while the page is frozen, and a probe cut short is not an
       // answer: it pauses, and the page coming back asks again
@@ -154,9 +164,23 @@ export class HerdrSocket {
     if (this.pageHidden) {
       this.pageHidden = false;
       this.shownAt = Date.now();
+      this.resumed = this.hiddenAt > 0 && this.shownAt - this.hiddenAt >= LONG_HIDE_MS;
     }
     this.wake();
   };
+  /** the network came back or changed: an attempt still connecting went out on the old one */
+  private readonly onNetwork = (): void => {
+    this.networkChanged = true;
+    this.onWake();
+  };
+  /** when the page was last hidden, and whether it came back from a long hide (see LONG_HIDE_MS) */
+  private hiddenAt = 0;
+  private resumed = false;
+  private networkChanged = false;
+  /** when the attempt in this.socket started: one started before the page was last shown went out asleep */
+  private attemptAt = 0;
+  /** the probe in flight is a resume probe (RESUME_PROBE_MS, see LONG_HIDE_MS) */
+  private resumeProbe = false;
   private mode: ClientRole = "interact";
   /** whether the page is in use (`presence`), as last told; null until the page says */
   private presence: boolean | null = null;
@@ -177,6 +201,20 @@ export class HerdrSocket {
   private readonly submits = new Map<number, (result: SubmitResult) => void>();
   /** Receipts match the operation and captured target on this connection, never an ID alone. */
   private readonly requests = new Map<number, { type: "submit" | "pending-action" | "secret"; paneId: string; queued?: boolean; pendingId?: string }>();
+  private diagnosticProbe?: DiagnosticSpan;
+  private diagnosticBackoff?: DiagnosticSpan;
+  private diagnosticAttachments = new Map<string, { output: DiagnosticSpan; ready: DiagnosticSpan }>();
+
+  private diagnosticTarget(paneId?: string): DiagnosticTarget {
+    return { machineId: new URL(this.url, "http://diagnostic.invalid").searchParams.get("machine_id") ?? "local", ...(paneId ? { paneId } : {}) };
+  }
+
+  private diagnosticAttach(paneId: string): void {
+    const previous = this.diagnosticAttachments.get(paneId);
+    previous?.output.end("cancelled"); previous?.ready.end("cancelled");
+    const output = connectionDiagnostics.span("ws.attach", this.diagnosticTarget(paneId));
+    this.diagnosticAttachments.set(paneId, { output, ready: output.child("ws.input-ready") });
+  }
 
   constructor(url: string = defaultUrl()) {
     this.url = url;
@@ -221,8 +259,12 @@ export class HerdrSocket {
     // a backoff retry still waiting would only open a second attempt later, past whatever ends this one
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.diagnosticBackoff?.end(); this.diagnosticBackoff = undefined;
+    const handshake = connectionDiagnostics.span("ws.connect", this.diagnosticTarget());
+    let snapshot: DiagnosticSpan | undefined;
     const socket = new WebSocket(this.url);
     this.socket = socket;
+    this.attemptAt = Date.now();
     this.connectionState = "connecting";
     this.features = new Set();
     this.inputReady.clear();
@@ -234,12 +276,15 @@ export class HerdrSocket {
       this.connectTimer = null;
       if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
       this.connectTimeouts += 1;
+      handshake.mark("ws.connect-timeout"); handshake.end("error");
       socket.close();
       // the close event of an attempt that never opened may come late or not at all: end it here
       this.closed(socket, 1006);
     }, Math.min(CONNECT_TIMEOUT_MAX_MS, CONNECT_TIMEOUT_MS * 2 ** this.connectTimeouts));
 
     socket.addEventListener("open", () => {
+      handshake.end();
+      snapshot = handshake.child("ws.snapshot");
       if (this.socket === socket) {
         this.clearConnectTimer();
         this.connectTimeouts = 0;
@@ -256,6 +301,7 @@ export class HerdrSocket {
       // a new connection is a new client to the server: it has to hear again whether the page is in use
       if (this.presence !== null) this.rawSend({ type: "presence", active: this.presence });
       for (const [paneId, state] of this.attached) {
+        this.diagnosticAttach(paneId);
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
       }
     });
@@ -275,6 +321,7 @@ export class HerdrSocket {
       // ended before the handlers run, so the input checks they make already read true; the pong
       // goes on to them, so a view that read input as refused during the probe reads it again
       if (message.type === "pong" && this.probeIds.has(message.id)) {
+        this.diagnosticProbe?.end(); this.diagnosticProbe = undefined;
         this.probeDrops = 0;
         this.endProbe();
       }
@@ -284,9 +331,11 @@ export class HerdrSocket {
       // a server without the read-only view (an older bridge after a reconnect) ends this tab's watches
       let unwatched: string[] = [];
       if (message.type === "snapshot") {
+        snapshot?.end();
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
         this.pingKnown = this.features.has("ping");
+        if (!this.pingKnown) connectionDiagnostics.mark("ws.no-ping", this.diagnosticTarget());
         // a probe sent before this snapshot (running or paused), on ping support remembered from an
         // earlier connection: this bridge does not answer pings (an older one after a reconnect), so
         // its connection is trusted as before rather than dropped at the deadline or left paused
@@ -308,9 +357,16 @@ export class HerdrSocket {
         this.markSnapshot();
       }
       if (message.type === "watch-end") this.watched.delete(message.pane_id);
-      if (message.type === "pty-data") this.outputSeen.add(message.pane_id);
+      if (message.type === "pty-data") {
+        if (!this.outputSeen.has(message.pane_id)) {
+          const timing = this.diagnosticAttachments.get(message.pane_id);
+          timing?.output.mark("ws.first-output"); timing?.output.end();
+        }
+        this.outputSeen.add(message.pane_id);
+      }
       if ((message.type === "input-ready" && message.ready !== false) || (message.type === "pty-data" && this.snapshotKnown && !this.features.has("input-ready"))) {
         if (this.attached.has(message.pane_id)) this.inputReady.add(message.pane_id);
+        this.diagnosticAttachments.get(message.pane_id)?.ready.end();
       }
       if ((message.type === "input-ready" && message.ready === false) || message.type === "pty-exit" || (message.type === "error" && message.pane_id && ["attach_held", "input_not_ready"].includes(message.code))) this.inputReady.delete(message.pane_id!);
       if (message.type === "submit-result" && this.matchesRequest(message.id, "submit", message.pane_id)) {
@@ -338,6 +394,7 @@ export class HerdrSocket {
     });
 
     socket.addEventListener("close", (event) => {
+      handshake.end("error"); snapshot?.end("cancelled");
       if (this.endedEarly.has(socket)) {
         this.endedEarly.delete(socket);
         // the server's own close still decides whether output stopped, even after a replacement started
@@ -364,6 +421,7 @@ export class HerdrSocket {
   /** The end of this connection, from its close event or a connect deadline; a stale socket's is ignored. */
   private closed(socket: WebSocket, code: number): void {
     if (this.socket !== socket) return;
+    connectionDiagnostics.mark("ws.close", this.diagnosticTarget(), code);
     this.endConnection();
     if (code === OUTPUT_STALLED_CLOSE_CODE) {
       this.stopOutput();
@@ -374,6 +432,8 @@ export class HerdrSocket {
 
   /** Drops the current connection: its submits settle as disconnected and the disconnect handlers run. */
   private endConnection(): void {
+    for (const timing of this.diagnosticAttachments.values()) { timing.output.end("cancelled"); timing.ready.end("cancelled"); }
+    this.diagnosticAttachments.clear();
     this.socket = null;
     this.clearConnectTimer();
     this.clearLiveness();
@@ -383,6 +443,8 @@ export class HerdrSocket {
   }
 
   private stopOutput(): void {
+    this.diagnosticBackoff?.end("cancelled"); this.diagnosticBackoff = undefined;
+    connectionDiagnostics.mark("ws.output-stopped", this.diagnosticTarget(), OUTPUT_STALLED_CLOSE_CODE);
     this.stopped = true;
     this.stoppedHidden = (typeof document !== "undefined" && document.visibilityState === "hidden")
       || this.pageHidden || (this.shownAt > 0 && Date.now() - this.shownAt <= SHOWN_GRACE_MS);
@@ -404,6 +466,8 @@ export class HerdrSocket {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.pingKnown || this.probeTimer !== null) return;
     this.connectionState = "probing";
+    this.diagnosticProbe?.end("cancelled");
+    this.diagnosticProbe = connectionDiagnostics.span("ws.probe", this.diagnosticTarget());
     // a paused probe goes on with a fresh ping: whoever waits on it keeps waiting
     if (this.probePaused) this.probePaused = false;
     else this.probeDone = new Promise((resolve) => { this.markProbeDone = resolve; });
@@ -413,6 +477,7 @@ export class HerdrSocket {
   /** Stops a probe's deadline while the page is hidden, without answering it (see probePaused). */
   private pauseProbe(): void {
     if (this.probeTimer === null) return;
+    this.diagnosticProbe?.mark("ws.probe-paused");
     window.clearTimeout(this.probeTimer);
     this.probeTimer = null;
     this.probeIds.clear();
@@ -426,11 +491,12 @@ export class HerdrSocket {
 
   /** Sends one of the probe's pings and arms its deadline; `attempt` 2 is the last before a drop. */
   private ping(socket: WebSocket, attempt: 1 | 2): void {
-    const deadline = Math.min(PROBE_TIMEOUT_MAX_MS, PROBE_TIMEOUT_MS * 2 ** this.probeDrops);
+    const deadline = this.resumeProbe ? RESUME_PROBE_MS : Math.min(PROBE_TIMEOUT_MAX_MS, PROBE_TIMEOUT_MS * 2 ** this.probeDrops);
     const armedAt = Date.now();
     this.probeTimer = window.setTimeout(() => {
       this.probeTimer = null;
       if (this.socket !== socket) return;
+      this.diagnosticProbe?.mark("ws.probe-timeout");
       // the server is closing it: its close event decides, so a 4008 still stops output (see wake())
       if (socket.readyState === SOCKET_CLOSING) {
         this.endProbe();
@@ -439,6 +505,7 @@ export class HerdrSocket {
       // the page was frozen past the deadline: no pong could have been read meanwhile, so ask again,
       // and a pong to a ping sent before the freeze no longer counts
       if (Date.now() - armedAt > deadline + PROBE_OVERDUE_MS) {
+        this.diagnosticProbe?.mark("ws.probe-restarted");
         this.probeIds.clear();
         this.ping(socket, 1);
       }
@@ -452,6 +519,8 @@ export class HerdrSocket {
   }
 
   private endProbe(): void {
+    this.resumeProbe = false;
+    this.diagnosticProbe?.end("cancelled"); this.diagnosticProbe = undefined;
     if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
     this.probeTimer = null;
     this.probePaused = false;
@@ -473,7 +542,10 @@ export class HerdrSocket {
    * are ignored (it is no longer this.socket).
    */
   private drop(socket: WebSocket): void {
-    this.probeDrops += 1;
+    this.diagnosticProbe?.end("error"); this.diagnosticProbe = undefined;
+    // a resume probe that drops found a socket the sleep killed, not a slow link
+    if (!this.resumeProbe) this.probeDrops += 1;
+    this.resumeProbe = false;
     this.endConnection();
     // a server close (4008) that comes after this still stops output
     this.endedEarly.add(socket);
@@ -509,7 +581,7 @@ export class HerdrSocket {
   private listenForWake(): void {
     if (this.wakeListening || typeof window.addEventListener !== "function") return;
     this.wakeListening = true;
-    window.addEventListener("online", this.onWake);
+    window.addEventListener("online", this.onNetwork);
     window.addEventListener("pageshow", this.onWake);
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", this.onWake);
@@ -532,10 +604,23 @@ export class HerdrSocket {
    * an attach resumes it.
    */
   wake(): void {
+    connectionDiagnostics.mark("ws.wake", this.diagnosticTarget(), this.socket?.readyState);
+    // what brought the page back, read once: a later wake (another event of the same return) is ordinary
+    const resumed = this.resumed;
+    const networkChanged = this.networkChanged;
+    this.resumed = false;
+    this.networkChanged = false;
     if (this.disposed || this.stopped) return;
     const socket = this.socket;
     // an open socket may be half-open after a sleep or a network change: ask it (a bridge without "ping" is trusted)
     if (socket?.readyState === WebSocket.OPEN) {
+      if (!this.pingKnown) connectionDiagnostics.mark("ws.no-ping", this.diagnosticTarget());
+      // back from a long hide or on another network: ask quickly, and a probe already waiting asks again with the short deadline
+      if ((resumed || networkChanged) && this.pingKnown) {
+        if (this.probeTimer !== null) { window.clearTimeout(this.probeTimer); this.probeTimer = null; this.probeIds.clear(); this.probePaused = true; }
+        this.resumeProbe = true;
+        connectionDiagnostics.mark("ws.resume-probe", this.diagnosticTarget());
+      }
       this.probe();
       return;
     }
@@ -543,7 +628,14 @@ export class HerdrSocket {
       this.retries = 0;
       return;
     }
-    if (socket?.readyState === WebSocket.CONNECTING && this.connectTimeouts > 0) {
+    // an attempt still connecting is given up for a fresh one when it already ran out once, went out
+    // before the page was shown (asleep, or on the network the phone had before), or the network changed
+    const staleAttempt = this.connectTimeouts > 0 || resumed || networkChanged || this.attemptAt < this.shownAt;
+    if (socket?.readyState === WebSocket.CONNECTING && !staleAttempt) {
+      connectionDiagnostics.mark("ws.wake-kept-attempt", this.diagnosticTarget());
+      return;
+    }
+    if (socket?.readyState === WebSocket.CONNECTING) {
       // never opened, so its close event can carry no output-stalled code: end it like its deadline would
       socket.close();
       this.closed(socket, 1006);
@@ -564,6 +656,7 @@ export class HerdrSocket {
     const delay = Math.min(5000, 250 * 2 ** this.retries);
     this.retries += 1;
     this.connectionState = "waiting";
+    this.diagnosticBackoff = connectionDiagnostics.span("ws.backoff", this.diagnosticTarget());
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (this.outputStopped || this.disposed) return;
@@ -598,6 +691,7 @@ export class HerdrSocket {
   }
 
   attach(paneId: string, cols: number, rows: number, keepSize = false): void {
+    this.diagnosticAttach(paneId);
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
     this.attached.set(paneId, { cols, rows, keepSize });
@@ -644,6 +738,8 @@ export class HerdrSocket {
   }
 
   detach(paneId: string): void {
+    const timing = this.diagnosticAttachments.get(paneId);
+    timing?.output.end("cancelled"); timing?.ready.end("cancelled"); this.diagnosticAttachments.delete(paneId);
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
     this.attached.delete(paneId);
@@ -850,6 +946,9 @@ export class HerdrSocket {
   }
 
   close(): void {
+    this.diagnosticBackoff?.end("cancelled");
+    for (const timing of this.diagnosticAttachments.values()) { timing.output.end("cancelled"); timing.ready.end("cancelled"); }
+    this.diagnosticAttachments.clear();
     this.disposed = true;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -858,7 +957,7 @@ export class HerdrSocket {
     this.connectionState = "closed";
     this.endedEarly = new WeakSet();
     if (this.wakeListening) {
-      window.removeEventListener("online", this.onWake);
+      window.removeEventListener("online", this.onNetwork);
       window.removeEventListener("pageshow", this.onWake);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onWake);
       this.wakeListening = false;
