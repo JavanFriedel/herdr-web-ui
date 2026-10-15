@@ -344,6 +344,7 @@ export const ZH: Record<string, string> = {
   "PC {name}": "PC {name}",
   "Details for {name}": "{name} 详情",
   "Rename…": "重命名…",
+  "{n} not restored": "{n} 个未恢复",
   "PC name": "PC 名称",
   "Rename": "重命名",
   "Disconnect": "断开连接",

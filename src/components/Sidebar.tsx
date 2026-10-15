@@ -201,6 +201,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     return () => { live = false; };
   }, [listWorktrees, unmarked, online]);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // the repositories whose not-restored worktrees are shown; folded by default, for this page only
+  const [staleShown, setStaleShown] = useState<ReadonlySet<string>>(() => new Set());
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [worktreeDialog, setWorktreeDialog] = useState<{ mode: WorktreeDialogMode; workspace: WorkspaceInfo } | null>(null);
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
@@ -676,7 +678,29 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
                 hidden={childrenHidden}
                 data-drop={afterChildren && !childrenHidden ? "after" : undefined}
               ><ul className="workspace-list">
-                {children.filter((child) => !collapsedWorktrees.has(workspace.worktree!.repo_key) || roster.some((pane) => pane.workspace_id === child.workspace_id && pane.pane_id === selectedPaneId)).map((child) => renderWorkspaceRow(child, [], true, dropMark?.id === child.workspace_id ? dropMark.side : undefined))}
+                {(() => {
+                  const repoKey = workspace.worktree!.repo_key;
+                  const shown = children.filter((child) => !collapsedWorktrees.has(repoKey) || roster.some((pane) => pane.workspace_id === child.workspace_id && pane.pane_id === selectedPaneId));
+                  // worktrees herdr could not bring back (their checkout is gone, most often) fold
+                  // under one quiet row: they are clean-up, not work; the one on screen stays out
+                  const stale = online ? shown.filter((child) => {
+                    const panes = roster.filter((pane) => pane.workspace_id === child.workspace_id);
+                    return panes.length > 0 && panes.every((pane) => pane.restore_error) && !panes.some((pane) => pane.pane_id === selectedPaneId);
+                  }) : [];
+                  const open = staleShown.has(repoKey);
+                  const row = (child: WorkspaceInfo) => renderWorkspaceRow(child, [], true, dropMark?.id === child.workspace_id ? dropMark.side : undefined);
+                  return <>
+                    {shown.filter((child) => !stale.includes(child)).map(row)}
+                    {stale.length > 0 && <li className="workspace-stale-fold">
+                      <button type="button" className="workspace-stale-toggle" aria-expanded={open} onClick={() => setStaleShown((current) => { const next = new Set(current); if (open) next.delete(repoKey); else next.add(repoKey); return next; })}>
+                        {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                        <TriangleAlert className="workspace-stale-mark" aria-hidden="true" />
+                        <span>{t("{n} not restored", { n: stale.length })}</span>
+                      </button>
+                    </li>}
+                    {open && stale.map(row)}
+                  </>;
+                })()}
               </ul></li>}
             </Fragment>;
           })}</ul>

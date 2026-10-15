@@ -325,6 +325,7 @@ export const TR: Record<string, string> = {
   "PC {name}": "Bilgisayar {name}",
   "Details for {name}": "{name} ayrıntıları",
   "Rename…": "Yeniden adlandır…",
+  "{n} not restored": "{n} öğe geri yüklenmedi",
   "PC name": "Bilgisayar adı",
   "Rename": "Yeniden adlandır",
   "Disconnect": "Bağlantıyı kes",

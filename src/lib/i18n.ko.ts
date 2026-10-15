@@ -340,6 +340,7 @@ export const KO: Record<string, string> = {
   "PC {name}": "PC {name}",
   "Details for {name}": "{name} 세부 정보",
   "Rename…": "이름 바꾸기…",
+  "{n} not restored": "{n}개 복원되지 않음",
   "PC name": "PC 이름",
   "Rename": "이름 바꾸기",
   "Disconnect": "연결 끊기",

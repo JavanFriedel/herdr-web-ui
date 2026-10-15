@@ -342,6 +342,7 @@ export const JA: Record<string, string> = {
   "PC {name}": "PC {name}",
   "Details for {name}": "{name} の詳細",
   "Rename…": "名前を変更…",
+  "{n} not restored": "{n} 件が復元されていません",
   "PC name": "PC 名",
   "Rename": "名前を変更",
   "Disconnect": "切断",

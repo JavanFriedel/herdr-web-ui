@@ -1,4 +1,4 @@
-import { type CSSProperties, type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, Ellipsis, FolderInput, FolderOpen, Link, Lock, Menu, MessageSquare, PanelLeft, Plus, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
@@ -25,6 +25,7 @@ import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
+import { readDismissed, waitingMachines } from "./lib/machineNotice.ts";
 import { ConnectionStrip } from "./components/ConnectionStrip.tsx";
 import { needsYouRows } from "./lib/needsYou.ts";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
@@ -240,7 +241,10 @@ export function App() {
   }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
   const updates = useUpdates(locked === false);
   // the sidebar's foot holds the update line; its toggle carries a dot while the line asks for something
-  const updateDot = updates.needsReload ? "warning" : updates.status?.available || updates.status?.phase === "building" || updates.status?.phase === "restarting" ? "info" : null;
+  // a PC waiting on a bridge update or setup is the footer's too (MachineActionBanner); a dismissal there clears its dot
+  const [, bumpNotices] = useReducer((n: number) => n + 1, 0);
+  const machineWaiting = waitingMachines(machines, readDismissed()).length > 0 || machines.some((machine) => machine.updating);
+  const updateDot = updates.needsReload ? "warning" : machineWaiting || updates.status?.available || updates.status?.phase === "building" || updates.status?.phase === "restarting" ? "info" : null;
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (initialLink?.pane) return initialLink.pane;
     // a link to a workspace opens the pane its row opens, once the roster is in (below)
@@ -1541,7 +1545,12 @@ export function App() {
           {/* a sidebar that cannot be drawn leaves the panes working */}
           <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
             <CrashProbe region="sidebar" />
-            <MachineSidebar activity={sidebarActivity} needsYou={needsYou} notice={<UpdateNotice updates={updates} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+            <MachineSidebar activity={sidebarActivity} needsYou={needsYou} notice={<>
+              {/* the lines that wait on the user but not on the pane: here, never over the chat; the toggle's dot points to them */}
+              <UpdateNotice updates={updates} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />
+              <MachineActionBanner machines={machines} onDismiss={bumpNotices} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
+              <TelemetryNotice enabled={locked === false} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />
+            </>} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
@@ -1553,7 +1562,6 @@ export function App() {
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
         <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
         {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
-        <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <ConnectionStrip
           networkOnline={networkOnline}
           serverError={error}
@@ -1567,7 +1575,6 @@ export function App() {
           onRetry={() => { void loadHealth(); void load(); }}
           onOpenPcs={() => { if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen(true); else setSidebarCollapsed(false); }}
         />
-        <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
         {health?.lan_exposure && <LanExposureNotice host={health.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
         {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,

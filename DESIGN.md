@@ -643,6 +643,10 @@ One set for both themes: the card is island black wherever it shows.
   `--border-strong` hairline guide drops from the chevron beside them. There is one leading
   icon per row: the agent's mark, else the project's favicon (top-level only), the branch glyph
   for a linked worktree or the terminal glyph.
+- A repository's worktrees whose every pane herdr could not restore (a deleted checkout, most
+  often) fold under one quiet row at the worktrees' indent: a chevron, a small `--status-blocked`
+  warning and "N not restored" in dim `--fs-xs`. It opens them for this page only; the one on
+  screen never folds away.
 - A PC's name in its header is a button that opens the PC's details (`RowMenu`: a popover, the
   sheet on a phone): its state in words and color, its SSH address, its herdr version and its
   last error, then Reconnect / setup, Update bridge…, Connect or Disconnect, Rename… and

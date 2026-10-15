@@ -1382,8 +1382,9 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       {state.source === "conversation" && olderCursor === null && older.length > 0 && <p className="chat-endcap">{t("beginning of conversation")}</p>}
   </>;
   const footer = <>
-      {!ended && !connected && <p className="chat-inline-state" role="status">{t("Reconnecting…")}</p>}
-      {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? t("locked — the token gate is asking again") : error}</p>}
+      {/* a dropped socket is the connection strip's to say (ConnectionStrip.tsx), with its cause; a read
+          that failed while it was down ("Failed to fetch") is that same news, so only a lock speaks here */}
+      {error !== null && (connected || ended || errorStatus === 401) && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? t("locked — the token gate is asking again") : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
       {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
