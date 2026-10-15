@@ -1,5 +1,10 @@
 # herdr web ui
 
+> **This repository is becoming tackr**, an independent project that started as a fork of
+> [herdr web ui](https://github.com/devswha/herdr-web-ui) by devswha and its contributors. Their
+> work, and its full history, is kept here with thanks; see [LICENSE](LICENSE). The rest of this
+> README still describes herdr web ui and will be rewritten as tackr takes shape.
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
 </p>
