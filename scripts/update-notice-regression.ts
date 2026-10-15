@@ -167,6 +167,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     status = { ...status, available: false, latest_revision: null, current_revision: "d".repeat(40), served_revision: tabRevision,
       blocked_reason: "The source checkout changed. Restart the app before updating." };
     await page.reload();
+    await openDrawer();
     await page.getByText(restart, { exact: true }).waitFor();
     assert.equal(await reloadButton.count(), 0, "the restart line offers no reload");
     assert.equal(await page.getByText(updated, { exact: true }).count(), 0, "and does not say the app updated");
@@ -175,6 +176,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await shot("6-restart-line");
     // what the reload button did before: the line is still there
     await page.reload();
+    await openDrawer();
     await page.getByText(restart, { exact: true }).waitFor();
     assert.equal(await reloadButton.count(), 0, "a reload leaves the restart line, without a reload button");
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
@@ -192,6 +194,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     const dirty = "The source checkout has local changes. Commit or move them before updating.";
     status = { ...status, blocked_reason: dirty };
     await page.reload();
+    await openDrawer();
     await page.getByText(restart, { exact: true }).waitFor();
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "About");
@@ -202,6 +205,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     // a pull without a build: the server serves its own build, which a reload does bring
     status = { ...status, served_revision: null };
     await page.reload();
+    await openDrawer();
     await page.getByText(updated, { exact: true }).waitFor();
     await reloadButton.waitFor();
     assert.equal(await page.getByText(restart, { exact: true }).count(), 0, "a checkout the tab was not built from keeps the reload line");

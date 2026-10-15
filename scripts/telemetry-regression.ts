@@ -166,7 +166,8 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
     assert.equal(updatedPreview.settings?.palette, "charcoal", "the preview refreshes with the server's updated snapshot");
     assert.equal(await notice.getByRole("button").count(), 2, "the line offers What is sent and Dismiss, nothing else");
     const rows = await notice.locator("span").evaluate((span) => span.getBoundingClientRect().height / parseFloat(getComputedStyle(span).lineHeight));
-    assert.ok(rows < 1.5, `the sentence stays on one row (${rows} rows)`);
+    // the line is a card at the sidebar's foot (UpdateNotice), where the sentence wraps: two rows at most
+    assert.ok(rows < 2.5, `the sentence stays within two rows (${rows} rows)`);
     await telemetrySection.getByRole("switch", { name: "Send install and update counts", exact: true }).click();
     await until(async () => !(await statusAt(origin)).enabled, "the Settings switch cancels the pending event");
     await dialog.getByRole("button", { name: "Close settings", exact: true }).click();

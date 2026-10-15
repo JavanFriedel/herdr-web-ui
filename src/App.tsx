@@ -1418,7 +1418,8 @@ export function App() {
           <button
             type="button"
             className="icon-button drawer-toggle"
-            aria-label={drawerOpen ? t("Close workspace list") : [t("Open workspace list"), needsYou.length > 0 ? t("{count} need you", { count: needsYou.length }) : null, updateDot ? t("an update is waiting") : null].filter(Boolean).join(" · ")}
+            aria-label={drawerOpen ? t("Close workspace list") : t("Open workspace list")}
+            aria-describedby={!drawerOpen && (needsYou.length > 0 || updateDot) ? "drawer-toggle-news" : undefined}
             aria-expanded={drawerOpen}
             aria-controls="workspace-drawer"
             onClick={() => setDrawerOpen((open) => !open)}
@@ -1428,6 +1429,8 @@ export function App() {
             {!drawerOpen && needsYou.length > 0 && <span className={`drawer-toggle-count${needsAnswer ? " is-blocked" : ""}`} aria-hidden="true">{needsYou.length > 9 ? "9+" : needsYou.length}</span>}
             {!drawerOpen && updateDot && <span className={`drawer-toggle-dot is-${updateDot}`} aria-hidden="true" />}
           </button>
+          {/* the badge and the dot in words: the button keeps its name, so what waits is its description */}
+          <span id="drawer-toggle-news" className="visually-hidden">{[needsYou.length > 0 ? t("{count} need you", { count: needsYou.length }) : null, updateDot ? t("an update is waiting") : null].filter(Boolean).join(" · ")}</span>
           <button
             type="button"
             className="icon-button header-desktop-only sidebar-toggle"
