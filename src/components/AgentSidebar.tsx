@@ -9,6 +9,7 @@ import { agentContext, agentTabName, groupRows, paneMark, sidebarAgents, type Si
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { activityOrder } from "../lib/sidebarOrder.ts";
+import type { NeedsYouRow } from "../lib/needsYou.ts";
 import { currentSidebarPins, pruneSidebarPins, setSidebarPins, sidebarPinKey, splitPinnedRows, subscribeSidebarPins, toggleSidebarPin } from "../lib/sidebarPins.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, PlanBadge, StatusBadge } from "./Sidebar.tsx";
@@ -32,7 +33,7 @@ interface AgentRowBodyProps {
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
  * how it is doing.
  */
-function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status }: AgentRowBodyProps) {
+export function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">
@@ -115,7 +116,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const { pane, workspace, tab, agent, agentLabel } = entry;
     const selected = machine.id === selectedMachineId && pane.pane_id === selectedPaneId;
     const online = machine.state === "connected";
-    const title = pane.label?.trim() || agent?.title?.trim() || pane.title?.trim() || displayPaneTitle(pane);
+    const title = agentRowTitle(entry);
     const name = agent?.name?.trim() || null;
     // the name has its own place on the line: the label beside it says the kind instead
     const kindLabel = name !== null && agentLabel === name ? entry.canonicalAgent ?? agent?.title?.trim() ?? null : agentLabel;
@@ -166,5 +167,36 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         }) : [...split.pinned, ...split.rest].map((row) => agentItem(row, false))}
       </ul>}
     </div>
+  </section>;
+}
+
+/** what an agent row reads as its title: its pane's own name first, then the agent's, then the screen's */
+function agentRowTitle({ pane, agent }: SidebarAgent): string {
+  return pane.label?.trim() || agent?.title?.trim() || pane.title?.trim() || displayPaneTitle(pane);
+}
+
+/**
+ * Needs you: the agents on every connected PC waiting for an answer, then the finishes not opened
+ * here yet (lib/needsYou.ts). It heads the sidebar so a phone opening the drawer from an alert
+ * lands on what asked, and it is gone when nothing does. A row opens its pane, as an agent row does.
+ */
+export function NeedsYou({ rows, machines, onSelect }: { rows: readonly NeedsYouRow[]; machines: readonly Machine[]; onSelect(machineId: string, paneId: string): void }) {
+  const t = useT();
+  if (rows.length === 0) return null;
+  const blocked = rows.some((row) => row.attention === "blocked");
+  return <section className={`needs-you${blocked ? " is-blocked" : ""}`} aria-label={t("Needs you")}>
+    <div className="sidebar-section-label needs-you-head">
+      <span>{t("Needs you")}</span>
+      <span className="needs-you-count">{rows.length}</span>
+    </div>
+    <ul className="agent-list needs-you-list">{rows.map(({ machine, entry, attention }) => {
+      const title = agentRowTitle(entry);
+      const context = [attention === "blocked" ? t("Needs an answer") : t("Finished"), machines.length > 1 ? machine.name : null, entry.workspace.label].filter(Boolean).join(" · ");
+      return <li className="agent-item" key={paneStorageId(machine.id, entry.pane.pane_id)} data-machine={machine.id} data-pane={entry.pane.pane_id}>
+        <button type="button" className="agent-select agent-row" title={[title, context, entry.pane.cwd].filter(Boolean).join("\n")} onClick={() => onSelect(machine.id, entry.pane.pane_id)}>
+          <AgentRowBody mark={paneMark(entry)} markKind={entry.agentLabel} title={title} name={null} context={context} status={attention} />
+        </button>
+      </li>;
+    })}</ul>
   </section>;
 }

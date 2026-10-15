@@ -24,6 +24,8 @@ import { CommandPalette } from "./components/CommandPalette.tsx";
 import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
+import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
+import { needsYouRows } from "./lib/needsYou.ts";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
@@ -241,6 +243,10 @@ export function App() {
     if (initialLink && (initialLink.workspace || fileFromLink(initialLink))) return null;
     return storedSelection()?.pane_id ?? null;
   });
+  // the sidebar's live counters and the finishes opened here; Needs you heads the sidebar and its count rides the drawer's toggle
+  const sidebarActivity = useSidebarActivityState(machines, selectedMachineId, selectedPaneId);
+  const needsYou = useMemo(() => needsYouRows(machines, sidebarActivity, selectedMachineId, selectedPaneId), [machines, sidebarActivity, selectedMachineId, selectedPaneId]);
+  const needsAnswer = needsYou.some((row) => row.attention === "blocked");
   const [notificationViewTarget, setNotificationViewTarget] = useState<NotificationTarget | null>(
     () => notificationTargetFromSearch(window.location.search),
   );
@@ -1401,13 +1407,14 @@ export function App() {
           <button
             type="button"
             className="icon-button drawer-toggle"
-            aria-label={drawerOpen ? t("Close workspace list") : updateDot ? t("Open workspace list · an update is waiting") : t("Open workspace list")}
+            aria-label={drawerOpen ? t("Close workspace list") : [t("Open workspace list"), needsYou.length > 0 ? t("{count} need you", { count: needsYou.length }) : null, updateDot ? t("an update is waiting") : null].filter(Boolean).join(" · ")}
             aria-expanded={drawerOpen}
             aria-controls="workspace-drawer"
             onClick={() => setDrawerOpen((open) => !open)}
           >
             {drawerOpen ? <X /> : <Menu />}
             {/* the update line lives at the foot of the sidebar: a closed drawer still says it is there */}
+            {!drawerOpen && needsYou.length > 0 && <span className={`drawer-toggle-count${needsAnswer ? " is-blocked" : ""}`} aria-hidden="true">{needsYou.length > 9 ? "9+" : needsYou.length}</span>}
             {!drawerOpen && updateDot && <span className={`drawer-toggle-dot is-${updateDot}`} aria-hidden="true" />}
           </button>
           <button
@@ -1522,7 +1529,7 @@ export function App() {
           {/* a sidebar that cannot be drawn leaves the panes working */}
           <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
             <CrashProbe region="sidebar" />
-            <MachineSidebar notice={<UpdateNotice updates={updates} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+            <MachineSidebar activity={sidebarActivity} needsYou={needsYou} notice={<UpdateNotice updates={updates} onOpen={() => { setDrawerOpen(false); setSettingsSection("updates"); setSettingsOpen(true); }} />} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>

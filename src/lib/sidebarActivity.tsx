@@ -9,17 +9,26 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, HerdrPane } from "../../shared/protocol.ts";
 import { useSettings } from "./settings.ts";
-import { anySeen, carrySeen, forgetSeen, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, seenAfterRestart, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
+import { knownStatus } from "./status.ts";
+import { anySeen, carrySeen, forgetSeen, isSeenDone, liveSeqs, loadSeen, markSeen, newSeqMemory, persistableSeen, pruneSeen, saveSeen, seedSeen, seenAfterRestart, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
 
 export interface SidebarActivity {
   /** herdr's state_change_seq per pane on a PC, a pushed status change dated at once */
   seqs(machineId: string): ReadonlyMap<string, number>;
   /** the status a row draws for a pane: with Quiet opened finishes on, a DONE looked at here reads as ready */
   status(machineId: string, pane: Pick<HerdrPane, "pane_id" | "agent_status" | "background_wait">): AgentStatus | undefined;
+  /**
+   * What a pane asks of the user, for Needs you: an answer (blocked), or a finish not opened here
+   * since it finished (done). Null otherwise. Opened finishes are tracked whatever Quiet opened
+   * finishes says; that setting decides only whether the rows' own dots go quiet.
+   */
+  attention(machineId: string, pane: Pick<HerdrPane, "pane_id" | "agent_status" | "background_wait">): Attention | null;
 }
 
+export type Attention = "blocked" | "done";
+
 const NO_SEQS: ReadonlyMap<string, number> = new Map();
-const SidebarActivityContext = createContext<SidebarActivity>({ seqs: () => NO_SEQS, status: (_machineId, pane) => shownStatus(pane, NO_SEQS, null) });
+const SidebarActivityContext = createContext<SidebarActivity>({ seqs: () => NO_SEQS, status: (_machineId, pane) => shownStatus(pane, NO_SEQS, null), attention: () => null });
 export const SidebarActivityProvider = SidebarActivityContext.Provider;
 export const useSidebarActivity = (): SidebarActivity => useContext(SidebarActivityContext);
 
@@ -33,8 +42,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   })), [machines]);
 
   // The pane on screen, while the page is visible, is looked at at its current counter. The first
-  // time the setting is on in this browser, everything open counts as looked at, so the lists
-  // start quiet; a PC first seen after that starts with nothing looked at.
+  // time this browser keeps a record, everything open counts as looked at, so the lists (and
+  // Needs you) start quiet; a PC first seen after that starts with nothing looked at. The record
+  // is kept whether or not Quiet opened finishes is on: Needs you reads it either way.
   const [seen, setSeen] = useState<ReadonlyMap<string, SeenRecord>>(() => new Map());
   // per PC, the herdr restarts (SeqMemory.restarts) its record was last kept through
   const restartsHandled = useRef(new Map<string, number>());
@@ -45,7 +55,6 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
   useEffect(() => {
-    if (!settings.quietOpenedDone) return;
     const firstUse = !anySeen();
     // read here, not in the updater: an updater can run twice, and after a newer roster read
     const handled = new Map(restartsHandled.current);
@@ -76,7 +85,7 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
       }
       return next ?? current;
     });
-  }, [settings.quietOpenedDone, machines, seqsByMachine, selectedMachineId, selectedPaneId, pageVisible]);
+  }, [machines, seqsByMachine, selectedMachineId, selectedPaneId, pageVisible]);
   useEffect(() => {
     // storage gets herdr's counters only: a stand-in waits in memory until it is carried (persistableSeen)
     for (const [machineId, record] of seen) saveSeen(machineId, persistableSeen(record, loadSeen(machineId)));
@@ -101,5 +110,13 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   return useMemo<SidebarActivity>(() => ({
     seqs: (machineId) => seqsByMachine.get(machineId) ?? NO_SEQS,
     status: (machineId, pane) => shownStatus(pane, seqsByMachine.get(machineId) ?? NO_SEQS, settings.quietOpenedDone ? carryOpened(machineId) : null),
+    attention: (machineId, pane) => {
+      if (pane.background_wait) return null;
+      const status = knownStatus(pane.agent_status);
+      if (status === "blocked") return "blocked";
+      if (status !== "done") return null;
+      const record = carryOpened(machineId);
+      return record && isSeenDone(pane, seqsByMachine.get(machineId) ?? NO_SEQS, record) ? null : "done";
+    },
   }), [seqsByMachine, seen, settings.quietOpenedDone]);
 }

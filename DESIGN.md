@@ -710,9 +710,19 @@ One set for both themes: the card is island black wherever it shows.
   own clients shows the pane, so an agent opened here would keep its finished dot. On, a DONE
   opened here (selected while the page is visible) since it finished draws as ready in the
   Agents list and in its workspace's roll-up. "Opened" is kept per PC in this browser
-  (`herdr-web-ui:seen:<pc>`) and dropped with the PC. The first time it is turned on in a
-  browser, everything open on the connected PCs counts as opened, so the lists start quiet; a PC
-  first seen later starts with nothing opened, so its finishes keep their dots until opened.
+  (`herdr-web-ui:seen:<pc>`) and dropped with the PC. The record is kept whether the setting is
+  on or off, since **Needs you** reads it either way; the setting only decides whether the rows'
+  own dots go quiet. The first time a browser keeps it, everything open on the connected PCs
+  counts as opened, so the lists start quiet; a PC first seen later starts with nothing opened,
+  so its finishes keep their dots until opened.
+- **Needs you** heads the sidebar while any agent on a connected PC waits on the user: those
+  waiting for an answer first, then finishes not opened here yet, each newest first; the pane
+  on screen is left out (`lib/needsYou.ts`). It is a `--radius-lg` card, its edge and tint the
+  blocked color while an answer is waiting and the done color otherwise, with Agents-style rows
+  whose second line says "Needs an answer" or "Finished", then the PC (beside another) and the
+  workspace. Its rows scroll past four and a half. Gone when empty. The drawer toggle carries
+  its count as a `--space-4` pill at its corner, in the same two colors; an update's dot then
+  moves to the other corner.
   Storage holds herdr's own counters only, so a page reloaded within the poll window after
   leaving a finish it watched shows that finish's dot again rather than guess. herdr's counter
   only goes up within a session, so a look recorded above it is from before a herdr restart and
