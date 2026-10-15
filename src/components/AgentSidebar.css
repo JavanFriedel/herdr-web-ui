@@ -254,3 +254,42 @@
     background: var(--side-hover);
   }
 }
+
+/* Needs you heads the sidebar: a card of the agents waiting on the user, gone when none is. Its
+   own rows scroll past four, so the workspaces below always keep their room. The card's edge
+   takes the blocked color while one of them waits for an answer, the done color otherwise. */
+.needs-you {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  margin: var(--space-2) var(--side-gutter) var(--space-1);
+  padding: 0 0 var(--space-1);
+  border: var(--hairline) solid color-mix(in srgb, var(--status-done) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--status-done-tint) 50%, var(--bg-panel));
+}
+
+.needs-you.is-blocked {
+  border-color: color-mix(in srgb, var(--status-blocked) 55%, transparent);
+  background: color-mix(in srgb, var(--status-blocked-tint) 50%, var(--bg-panel));
+}
+
+.needs-you-head {
+  padding: 0 var(--space-3);
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+.needs-you-count {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.needs-you-list {
+  max-height: calc(var(--side-row-2) * 4.5);
+  padding: 0 var(--space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

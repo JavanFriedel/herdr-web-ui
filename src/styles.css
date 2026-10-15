@@ -1355,6 +1355,35 @@ button {
 
 .drawer-toggle-dot.is-warning { background: var(--status-blocked); }
 
+/* Needs you's count (AgentSidebar.tsx): a small pill at the toggle's corner, red while an agent
+   waits for an answer, the done color for unopened finishes. An update's dot moves to the other corner. */
+.drawer-toggle-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: var(--space-4);
+  height: var(--space-4);
+  padding: 0 calc(var(--space-1) - var(--hairline));
+  transform: translate(30%, -20%);
+  border-radius: var(--radius-pill);
+  background: var(--status-done);
+  box-shadow: 0 0 0 calc(var(--hairline) * 2) var(--bg-panel);
+  color: var(--bg-panel);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--space-4);
+  text-align: center;
+  pointer-events: none;
+}
+
+.drawer-toggle-count.is-blocked { background: var(--status-blocked); }
+
+.drawer-toggle-count ~ .drawer-toggle-dot {
+  right: auto;
+  left: var(--space-1);
+}
+
 /* text buttons: .btn (neutral), .btn-primary, .btn-danger, .btn-ghost */
 .btn {
   display: inline-flex;
