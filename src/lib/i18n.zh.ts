@@ -147,6 +147,8 @@ export const ZH: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "正在连接 herdr web ui…",
+  "Can't reach herdr web ui": "无法连接 herdr web ui",
+  "No answer after {seconds} s": "{seconds} 秒内无响应",
   "Close workspace list": "关闭工作区列表",
   "Open workspace list": "打开工作区列表",
   "Show workspace list": "显示工作区列表",

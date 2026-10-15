@@ -153,6 +153,11 @@
   font-size: var(--fs-sm);
 }
 
+/* the one control a placeholder may carry (the boot screen's Retry): the placeholder lets clicks through */
+.terminal-placeholder-action {
+  pointer-events: auto;
+}
+
 /* the banners stack in one top-right column: any state combination (warning XOR
    review, observe alongside either) renders without collisions, and the column lets
    clicks pass through to the pty except where the review banner re-enables them */

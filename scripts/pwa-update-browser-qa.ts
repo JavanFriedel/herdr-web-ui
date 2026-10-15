@@ -197,9 +197,10 @@ try {
       // App intentionally waits for the server's auth state before mounting any terminal
       // or composer. Offline boot must show that shell, not bypass the auth boundary.
       await page.locator(".app-header").waitFor();
-      const placeholder = page.locator(".terminal-placeholder-inner span");
-      await placeholder.waitFor();
-      assert.ok((await placeholder.textContent())?.trim(), "the cached app draws its connection state, not a blank root");
+      // the health read fails at once offline: the cached app says so and offers Retry, not "Connecting…" for good
+      const failure = page.locator(".terminal-placeholder.is-restore-error");
+      await failure.getByText("Can't reach herdr web ui", { exact: true }).waitFor();
+      assert.equal(await failure.getByRole("button", { name: "Retry", exact: true }).count(), 1, "the failure offers Retry");
       assert.equal(await page.locator('script[type="module"][src]').getAttribute("src"), entry);
       assert.equal(await page.evaluate((key) => localStorage.getItem(key), `herdr-web-ui:composer-draft:${pane}`), draft,
         "the draft survives while the offline composer is unmounted");
