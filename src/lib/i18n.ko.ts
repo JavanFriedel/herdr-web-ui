@@ -299,6 +299,7 @@ export const KO: Record<string, string> = {
   "Connecting…": "연결 중…",
   "Connected": "연결됨",
   "Reconnecting…": "재연결 중…",
+  "Reconnect now": "지금 다시 연결",
   "Steps": "단계",
   "Last synced {time}": "마지막 동기화 {time}",
   "No network": "네트워크 없음",

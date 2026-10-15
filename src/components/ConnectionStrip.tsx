@@ -27,6 +27,8 @@ interface Props {
   /** a 4008 close stopped the output: the pane's own banner says so and offers Reconnect */
   outputStopped: boolean;
   onRetry(): void;
+  /** the pane's socket is reconnecting: start a fresh attempt now rather than wait out the one in flight */
+  onReconnect(): void;
   /** the PC's state is the sidebar's to explain: its name opens the PC's details there */
   onOpenPcs(): void;
 }
@@ -68,7 +70,7 @@ export function ConnectionStrip(props: Props) {
   } else if (machine && !props.herdrUp) {
     line = { level: "danger", text: t("herdr is not answering on {name}", { name: machine.name }), action: { label: t("Details"), run: props.onOpenPcs } };
   } else if (downSince !== null && now - downSince >= PANE_GRACE_MS) {
-    line = { level: "warning", spinning: true, text: t("Reconnecting…"), detail: t("{seconds} s", { seconds: Math.round((now - downSince) / 1000) }) };
+    line = { level: "warning", spinning: true, text: t("Reconnecting…"), detail: t("{seconds} s", { seconds: Math.round((now - downSince) / 1000) }), action: { label: t("Reconnect now"), run: props.onReconnect } };
   }
   if (line === null) return null;
   const Icon = line.offline ? WifiOff : RefreshCw;

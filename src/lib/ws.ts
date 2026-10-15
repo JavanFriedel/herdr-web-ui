@@ -1,6 +1,6 @@
 import type { ClientMessage, ClientRole, PendingMessage, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
-import { confirmNetwork, onNetworkUp } from "./networkUp.ts";
+import { confirmNetwork, confirmingNetwork, notifyNetworkUp, onNetworkUp } from "./networkUp.ts";
 import { connectionDiagnostics, type DiagnosticSpan, type DiagnosticTarget } from "./connectionDiagnostics.ts";
 
 type Handler = (message: ServerMessage) => void;
@@ -31,6 +31,15 @@ const SUBMIT_TIMEOUT_MS = 90_000;
  */
 const CONNECT_TIMEOUT_MS = 8_000;
 const CONNECT_TIMEOUT_MAX_MS = 30_000;
+/**
+ * While lib/networkUp.ts is still asking whether the network carries traffic (a wake from a long
+ * hide, a network change, an attempt that ran out), an attempt is given up after this long and a
+ * fresh one starts, its deadline not grown. A handshake sent on a dead path waits in TCP's own
+ * backoff, its SYN sent again only 1, 3, 7 and 15 s later: a phone back on its VPN after 9 s
+ * otherwise connected at 15.4 s, every time, when a fresh attempt got through in 30 ms. Once
+ * anything answers (a confirm, or any socket opening) the attempt in flight gets the ordinary deadline.
+ */
+const CONFIRMING_CONNECT_MS = 2_000;
 /**
  * Liveness (feature "ping"): a socket can read OPEN while its TCP path is gone (a phone moved from
  * Wi-Fi to cellular, a NAT entry expired while it slept) and no close event comes for minutes. The
@@ -135,6 +144,8 @@ export class HerdrSocket {
   private connectTimer: number | null = null;
   /** attempts given up at their deadline since the last one that opened */
   private connectTimeouts = 0;
+  /** the attempt in flight has the short deadline of a network not yet known to work (CONFIRMING_CONNECT_MS) */
+  private connectShort = false;
   /** sockets wake() or a probe ended before their close event ran: that event can still say the output stopped */
   private endedEarly = new WeakSet<WebSocket>();
   private disposed = false;
@@ -202,6 +213,9 @@ export class HerdrSocket {
     // a page put away (onLeave) connects nothing until it is shown again
     if (this.disposed || this.stopped || this.left) return;
     const stuck = socket?.readyState === WebSocket.CONNECTING && this.attemptAt < sentAt - NETWORK_UP_SLACK_MS;
+    // an attempt that went out on the working network may be a slow path that does work (a remote
+    // PC's relay): it waits out the ordinary deadline, not the short one of a network in doubt
+    if (!stuck && socket?.readyState === WebSocket.CONNECTING && this.connectShort) this.armConnectDeadline(socket, false);
     if (!stuck && this.reconnectTimer === null) return;
     connectionDiagnostics.mark("ws.network-up", this.diagnosticTarget());
     if (stuck && socket) {
@@ -329,22 +343,13 @@ export class HerdrSocket {
     this.outputSeen.clear();
     this.snapshotKnown = false;
     this.snapshotSeen = new Promise((resolve) => { this.markSnapshot = resolve; });
-    this.clearConnectTimer();
-    this.connectTimer = window.setTimeout(() => {
-      this.connectTimer = null;
-      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
-      this.connectTimeouts += 1;
-      handshake.mark("ws.connect-timeout"); handshake.end("error");
-      // a handshake that never answered may be waiting on a network not back yet
-      if (typeof document === "undefined" || document.visibilityState !== "hidden") confirmNetwork();
-      socket.close();
-      // the close event of an attempt that never opened may come late or not at all: end it here
-      this.closed(socket, 1006);
-    }, Math.min(CONNECT_TIMEOUT_MAX_MS, CONNECT_TIMEOUT_MS * 2 ** this.connectTimeouts));
+    this.connectHandshake = handshake;
+    this.armConnectDeadline(socket, confirmingNetwork());
 
     socket.addEventListener("open", () => {
       handshake.end();
       snapshot = handshake.child("ws.snapshot");
+      const proves = this.socket === socket && confirmingNetwork();
       if (this.socket === socket) {
         this.clearConnectTimer();
         this.connectTimeouts = 0;
@@ -367,6 +372,9 @@ export class HerdrSocket {
         state.releaseSizeOwed = !state.keepSize;
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
       }
+      // the network was in doubt and this handshake got through: whatever went out well before it
+      // (another PC's attempt, a history read) waits on a dead path and starts over now
+      if (proves) notifyNetworkUp(this.attemptAt);
     });
 
     socket.addEventListener("message", (event) => {
@@ -636,7 +644,35 @@ export class HerdrSocket {
     this.idleTimer = null;
   }
 
+  /** the handshake span of the attempt in flight, for its deadline's mark */
+  private connectHandshake?: DiagnosticSpan;
+
+  /**
+   * Arms (or re-arms, counted from when the attempt started) the deadline of the attempt in
+   * CONNECTING: short while the network is in doubt, which does not grow later deadlines, or the
+   * ordinary one doubled by each attempt given up since the last that opened.
+   */
+  private armConnectDeadline(socket: WebSocket, short: boolean): void {
+    this.clearConnectTimer();
+    this.connectShort = short;
+    const deadline = short ? CONFIRMING_CONNECT_MS : Math.min(CONNECT_TIMEOUT_MAX_MS, CONNECT_TIMEOUT_MS * 2 ** this.connectTimeouts);
+    this.connectTimer = window.setTimeout(() => {
+      this.connectTimer = null;
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      // a short deadline grows neither the next deadline nor the backoff: the next fresh attempt goes at once
+      if (short) this.retries = 0;
+      else this.connectTimeouts += 1;
+      this.connectHandshake?.mark("ws.connect-timeout"); this.connectHandshake?.end("error");
+      // a handshake that never answered may be waiting on a network not back yet
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") confirmNetwork();
+      socket.close();
+      // the close event of an attempt that never opened may come late or not at all: end it here
+      this.closed(socket, 1006);
+    }, Math.max(0, deadline - (Date.now() - this.attemptAt)));
+  }
+
   private clearConnectTimer(): void {
+    this.connectShort = false;
     if (this.connectTimer === null) return;
     window.clearTimeout(this.connectTimer);
     this.connectTimer = null;

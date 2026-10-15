@@ -72,6 +72,7 @@ import { useRepoDiffViewer } from "./lib/useRepoDiffViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
+import { retryNow } from "./lib/networkUp.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { dropletAllows, endedTurn, seedStatuses, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
@@ -1564,7 +1565,9 @@ export function App() {
           paneShown={selectedPane != null}
           paneConnected={connected}
           outputStopped={outputStopped}
-          onRetry={() => { void loadHealth(); void load(); }}
+          // the server unreachable is the sockets' news too: they start over with the reads
+          onRetry={() => { retryNow(); void loadHealth(); void load(); }}
+          onReconnect={retryNow}
           onOpenPcs={() => { if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen(true); else setSidebarCollapsed(false); }}
         />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}

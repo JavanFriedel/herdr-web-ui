@@ -9,10 +9,11 @@ class FakeSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static last: FakeSocket;
+  static readonly all: FakeSocket[] = [];
   readyState = FakeSocket.CONNECTING;
   readonly sent: { type: string; [key: string]: unknown }[] = [];
   private readonly listeners = new Map<string, ((event: any) => void)[]>();
-  constructor(readonly url: string) { FakeSocket.last = this; }
+  constructor(readonly url: string) { FakeSocket.last = this; FakeSocket.all.push(this); }
   addEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
   send(data: string): void { const frame = JSON.parse(data); this.sent.push(frame); this.emit("sent", frame); }
   nextSubmission(): Promise<{ id: number }> {
@@ -1789,6 +1790,126 @@ it("cuts a reconnect backoff short when the network comes back", async () => {
     waiting.disconnect();
     // a 2s backoff is waiting: the network back means now
     notifyNetworkUp(Date.now());
+    expect(FakeSocket.last).not.toBe(waiting);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+/**
+ * A network in doubt: lib/networkUp.ts asks the server, and each ask hangs until `answer()`. A
+ * test calls end() last, so the run stops and the next test starts a fresh one.
+ */
+async function networkInDoubt() {
+  const { confirmNetwork } = await import("./networkUp.ts");
+  const g = globalThis as unknown as { fetch: unknown; location: unknown };
+  const saved = { fetch: g.fetch, location: g.location };
+  let answered = false;
+  const waiting: (() => void)[] = [];
+  g.location = {};
+  g.fetch = (_url: string, init: { signal: AbortSignal }) => new Promise((resolve, reject) => {
+    if (answered) { resolve({}); return; }
+    waiting.push(() => resolve({}));
+    init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+  });
+  confirmNetwork();
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  return {
+    async end() {
+      answered = true;
+      for (const answer of waiting.splice(0)) answer();
+      await flush(); jest.advanceTimersByTime(1_100); await flush();
+      g.fetch = saved.fetch; g.location = saved.location;
+    },
+  };
+}
+
+it("while the network is in doubt, gives up an attempt after 2s for a fresh one, and an open proves it to every other attempt", async () => {
+  const { confirmingNetwork } = await import("./networkUp.ts");
+  jest.useFakeTimers();
+  const network = await networkInDoubt();
+  const local = new HerdrSocket("ws://test/ws");
+  const remote = new HerdrSocket("ws://test/ws?machine_id=pc");
+  const latest = (url: string) => FakeSocket.all.filter((socket) => socket.url === url).at(-1)!;
+  try {
+    expect(confirmingNetwork()).toBe(true);
+    remote.connect();
+    jest.advanceTimersByTime(1_200);
+    local.connect();
+    const first = latest("ws://test/ws");
+    // a handshake sent on the dead path waits in TCP's backoff: a fresh one goes, at the shortest backoff
+    jest.advanceTimersByTime(2_000);
+    expect(first.readyState).toBe(3);
+    jest.advanceTimersByTime(250);
+    const second = latest("ws://test/ws");
+    expect(second).not.toBe(first);
+    // the other PC's attempt went out 1.2s earlier and is still waiting
+    const remoteStuck = latest("ws://test/ws?machine_id=pc");
+    expect(remoteStuck.readyState).toBe(FakeSocket.CONNECTING);
+    // it gets through: the network is proven, and the other PC's older attempt starts over now
+    second.open();
+    expect(confirmingNetwork()).toBe(false);
+    expect(local.state).toBe("open");
+    const remoteFresh = latest("ws://test/ws?machine_id=pc");
+    expect(remoteFresh).not.toBe(remoteStuck);
+    expect(remoteStuck.readyState).toBe(3);
+    // on a working network a slow path (a remote PC's relay) gets the ordinary deadline
+    jest.advanceTimersByTime(7_900);
+    expect(latest("ws://test/ws?machine_id=pc")).toBe(remoteFresh);
+    expect(remoteFresh.readyState).toBe(FakeSocket.CONNECTING);
+    jest.advanceTimersByTime(100);
+    expect(remoteFresh.readyState).toBe(3);
+  } finally {
+    local.close();
+    remote.close();
+    await network.end();
+    jest.useRealTimers();
+  }
+});
+
+it("gives an attempt in flight the ordinary deadline once the network answers", async () => {
+  const { notifyNetworkUp } = await import("./networkUp.ts");
+  jest.useFakeTimers();
+  const network = await networkInDoubt();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    client.connect();
+    const attempt = FakeSocket.last;
+    jest.advanceTimersByTime(500);
+    // the confirm went out after this attempt did: it is kept, and no longer cut at 2s
+    notifyNetworkUp(Date.now());
+    jest.advanceTimersByTime(6_000);
+    expect(FakeSocket.last).toBe(attempt);
+    expect(attempt.readyState).toBe(FakeSocket.CONNECTING);
+    jest.advanceTimersByTime(1_500);
+    expect(attempt.readyState).toBe(3);
+  } finally {
+    client.close();
+    await network.end();
+    jest.useRealTimers();
+  }
+});
+
+it("Reconnect now starts a stuck attempt or a waiting backoff over at once", async () => {
+  const { retryNow } = await import("./networkUp.ts");
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    client.connect();
+    const stuck = FakeSocket.last;
+    jest.advanceTimersByTime(5_000);
+    retryNow();
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(stuck);
+    expect(stuck.readyState).toBe(3);
+    // a tap right after leaves the attempt that just went out alone
+    retryNow();
+    expect(FakeSocket.last).toBe(fresh);
+    for (const delay of [250, 500, 1_000]) { FakeSocket.last.disconnect(); jest.advanceTimersByTime(delay); }
+    const waiting = FakeSocket.last;
+    waiting.disconnect();
+    retryNow();
     expect(FakeSocket.last).not.toBe(waiting);
   } finally {
     client.close();
