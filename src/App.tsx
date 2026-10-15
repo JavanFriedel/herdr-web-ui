@@ -11,6 +11,7 @@ import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
 import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
+import { BootScreen, type BootFailure } from "./components/BootScreen.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
@@ -82,6 +83,10 @@ const APP_TITLE = "herdr web ui";
 /** how soon after a key press a focus counts as the user's own (lastKeyAtRef) */
 const KEY_FOCUS_MS = 1000;
 const POLL_MS = 5000;
+/** how long the server's health may take to answer before the question is dropped: a request sent
+ *  on a dead path waits out the browser's own deadline, minutes, while the boot screen said only
+ *  "Connecting…" */
+const HEALTH_TRY_MS = 8000;
 
 /**
  * Polls and the event stream hand over fresh objects every few seconds even when nothing
@@ -220,6 +225,12 @@ export function App() {
   // the WebSocket, never mounts before that is known
   const [locked, setLocked] = useState<boolean | null>(null);
   const [lockReason, setLockReason] = useState<AccessRefusal | null>(null);
+  // until then the boot screen says how the server's health went: when it was first asked, the
+  // last question's failure, and when the poll asks next (its Retry asks at once)
+  const [bootStartedAt] = useState(() => Date.now());
+  const [bootFailure, setBootFailure] = useState<BootFailure | null>(null);
+  const [nextPollAt, setNextPollAt] = useState(() => Date.now() + POLL_MS);
+  const pollNow = useRef<() => void>(() => undefined);
   /** the code a scanned QR brought along (`?pair=CODE`), taken off the address at once */
   const [pairCode] = useState(() => takePairCode());
   const [auth, setAuth] = useState<HealthAuth | null>(null);
@@ -430,8 +441,12 @@ export function App() {
   snapshotRef.current = snapshot;
 
   const loadHealth = useCallback(async () => {
-    try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
-    catch { /* retain the gate while the connection server restarts */ }
+    const deadline = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(HEALTH_TRY_MS) : undefined;
+    try { const next = await fetchBridgeHealth(deadline); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); setBootFailure(null); }
+    catch (error) {
+      // retain the gate while the connection server restarts; before any answer, the boot screen says why
+      if (lockedRef.current === null) setBootFailure({ error, timeoutMs: HEALTH_TRY_MS });
+    }
     try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
   }, []);
   const snapshotRequests = useRef(new SnapshotRequests());
@@ -454,24 +469,31 @@ export function App() {
     const tick = (): void => {
       // a hidden tab (or a phone app in the background) polls nothing; it catches up on return
       if (document.visibilityState === "hidden") return;
+      if (lockedRef.current === null) setNextPollAt(Date.now() + POLL_MS);
       void loadHealth();
       // a locked tab only watches health, so a token entered in another tab still unlocks it
       if (lockedRef.current !== true) void load();
     };
     let timer = 0;
     let disposed = false;
+    // a look out of turn starts the poll's count again, so the boot screen's "trying again in" holds
+    const restart = (): void => {
+      if (disposed) return;
+      window.clearInterval(timer);
+      tick();
+      timer = window.setInterval(tick, POLL_MS);
+    };
+    pollNow.current = restart;
     void (async (): Promise<void> => {
       // a bookmarked `#auth=<token>` link unlocks without typing; the fragment is
       // stripped before anything renders, and a stale token falls through to the
       // gate the first health check mounts
       const linkToken = takeAuthTokenFromUrl();
       if (linkToken !== null) await authenticate(linkToken).catch(() => undefined);
-      if (disposed) return;
-      tick();
-      timer = window.setInterval(tick, POLL_MS);
+      restart();
     })();
     const onVisible = (): void => {
-      if (document.visibilityState === "visible" && !disposed) tick();
+      if (document.visibilityState === "visible") restart();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -1341,7 +1363,7 @@ export function App() {
   if (locked === null) {
     // the auth state is unknown until /api/health or /api/session answers (ten seconds when
     // herdr is down): show the shell without the terminal, and so without a WebSocket,
-    // instead of a blank page
+    // instead of a blank page, and say there why no answer has come (BootScreen)
     return (
       <div className="app">
         <header className="app-header">
@@ -1350,15 +1372,11 @@ export function App() {
         <div className="app-body">
           <aside className="sidebar">
             <p className="tree-state" role="status">
-              Connecting…
+              {t("Connecting…")}
             </p>
           </aside>
           <main className="terminal-host">
-            <div className="terminal-placeholder">
-              <div className="terminal-placeholder-inner">
-                <span>{t("Connecting to herdr web ui…")}</span>
-              </div>
-            </div>
+            <BootScreen host={location.host} startedAt={bootStartedAt} failure={bootFailure} nextTryAt={nextPollAt} onRetry={() => pollNow.current()} />
           </main>
         </div>
       </div>

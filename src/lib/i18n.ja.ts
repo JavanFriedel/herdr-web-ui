@@ -145,6 +145,14 @@ export const JA: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "herdr web ui に接続しています…",
+  "No network": "ネットワークなし",
+  "Can't reach herdr web ui": "herdr web ui に接続できません",
+  "This device has no network connection.": "このデバイスはネットワークに接続されていません。",
+  "No answer yet · {seconds} s": "まだ応答がありません · {seconds} 秒",
+  "Check that this device can reach the server, for example that its VPN is on.": "このデバイスからサーバーに届くか確認してください (VPN がオンになっているかなど)。",
+  "Trying again in {seconds} s": "{seconds} 秒後に再試行",
+  "No answer after {seconds} s": "{seconds} 秒たっても応答がありません",
+  "The server answered {status}: {detail}": "サーバーの応答 {status}: {detail}",
   "Close workspace list": "ワークスペース一覧を閉じる",
   "Open workspace list": "ワークスペース一覧を開く",
   "Show workspace list": "ワークスペース一覧を表示",

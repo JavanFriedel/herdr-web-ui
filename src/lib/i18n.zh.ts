@@ -147,6 +147,14 @@ export const ZH: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "正在连接 herdr web ui…",
+  "No network": "无网络",
+  "Can't reach herdr web ui": "无法连接 herdr web ui",
+  "This device has no network connection.": "此设备没有网络连接。",
+  "No answer yet · {seconds} s": "尚无响应 · {seconds} 秒",
+  "Check that this device can reach the server, for example that its VPN is on.": "请检查此设备能否访问服务器，例如 VPN 是否已开启。",
+  "Trying again in {seconds} s": "{seconds} 秒后重试",
+  "No answer after {seconds} s": "{seconds} 秒内无响应",
+  "The server answered {status}: {detail}": "服务器返回 {status}：{detail}",
   "Close workspace list": "关闭工作区列表",
   "Open workspace list": "打开工作区列表",
   "Show workspace list": "显示工作区列表",

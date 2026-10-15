@@ -143,6 +143,14 @@ export const KO: Record<string, string> = {
 
   // ---- app header and shell ----
   "Connecting to herdr web ui…": "herdr web ui에 연결하는 중…",
+  "No network": "네트워크 없음",
+  "Can't reach herdr web ui": "herdr web ui에 연결할 수 없음",
+  "This device has no network connection.": "이 기기가 네트워크에 연결되어 있지 않습니다.",
+  "No answer yet · {seconds} s": "아직 응답 없음 · {seconds}초",
+  "Check that this device can reach the server, for example that its VPN is on.": "이 기기가 서버에 닿을 수 있는지 확인하세요. 예를 들어 VPN이 켜져 있는지 확인하세요.",
+  "Trying again in {seconds} s": "{seconds}초 후 다시 시도",
+  "No answer after {seconds} s": "{seconds}초 동안 응답 없음",
+  "The server answered {status}: {detail}": "서버 응답 {status}: {detail}",
   "Close workspace list": "워크스페이스 목록 닫기",
   "Open workspace list": "워크스페이스 목록 열기",
   "Show workspace list": "워크스페이스 목록 보이기",
