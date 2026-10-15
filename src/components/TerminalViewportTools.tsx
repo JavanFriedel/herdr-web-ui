@@ -12,12 +12,15 @@ import { offsetAtThumb, scrollPollDelay, scrollThumb, validScroll, visibleFindRe
 import "./TerminalViewportTools.css";
 
 export interface TerminalSearchState { query: string; result: PaneFindResponse }
+export type LineScrollResult = "moved" | "edge" | "unhandled";
 interface Box { left: number; top: number; width: number; height: number; cols: number; rows: number; trackTop: number; trackHeight: number }
 interface Props {
   viewportIntent: ViewportIntentGate;
   terminal: Terminal | null;
   paneId: string;
   pageScroll?: { current: ((direction: -1 | 1) => void) | null };
+  /** a finger's scroll by whole lines (positive: older): "unhandled" where the program owns the screen, "edge" at either end */
+  lineScroll?: { current: ((lines: number) => LineScrollResult) | null };
   onApplicationPage?: (direction: -1 | 1) => void;
   viewportId: string;
   enabled: boolean;
@@ -27,10 +30,16 @@ interface Props {
 }
 
 /** UI over the attach stream. History belongs to herdr; xterm still has zero scrollback. */
+/**
+ * The least time between two scroll writes. herdr redraws the whole view for each one however far
+ * it moved, so a finger asking every line would cost a full redraw per line; spaced, each write
+ * jumps to the newest target and the view keeps up with the finger at a fraction of the redraws.
+ */
+const MIN_WRITE_GAP_MS = 100;
 /** how long a page asked for on stale metrics waits for the read that tells history from a program's screen */
 const HELD_PAGE_MS = 1000;
 
-export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
+export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, lineScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
   const { settings } = useSettings();
@@ -56,12 +65,14 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
   const query = interactive && search && Array.isArray(search.result.matches) && search.result.scroll !== undefined ? search.query : "";
 
   useEffect(() => {
-    if (!terminal || !enabled) { setScroll(null); setHits([]); setPreview(null); previewRef.current = null; if (pageScroll) pageScroll.current = null; return; }
+    if (!terminal || !enabled) { setScroll(null); setHits([]); setPreview(null); previewRef.current = null; if (pageScroll) pageScroll.current = null; if (lineScroll) lineScroll.current = null; return; }
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let timerDue = 0;
     let pending = false;
     let writing = false;
+    let lastWriteAt = 0;
+    let gapTimer: ReturnType<typeof setTimeout> | null = null;
     let desired: number | null = null;
     let dirty = false;
     // metrics reads in a row with nothing in between that could move them: the poll backs off
@@ -165,7 +176,13 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
     const wake = () => { dirty = true; idle = 0; schedule(); };
     const flush = async () => {
       if (writing || desired === null || !alive || viewportIntent.isSearching()) return;
+      const wait = lastWriteAt + MIN_WRITE_GAP_MS - Date.now();
+      if (wait > 0) {
+        if (gapTimer === null) gapTimer = setTimeout(() => { gapTimer = null; void flush(); }, wait);
+        return;
+      }
       writing = true;
+      lastWriteAt = Date.now();
       const target = desired; desired = null;
       version++;
       clearHits();
@@ -211,6 +228,21 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
       else { dirty = true; idle = 0; schedule(0); }
     };
     if (pageScroll) pageScroll.current = scrollPage;
+    /**
+     * A finger's scroll, a line at a time, through the same writer as the scrollbar: one request in
+     * flight, the newest target replacing any not yet sent, so a fast swipe or a glide never queues
+     * a redraw per step. A program with the screen to itself (no history) has its wheel instead.
+     */
+    const scrollLines = (lines: number): LineScrollResult => {
+      const metrics = scrollRef.current;
+      if (!interactive || !alive || viewportIntent.isSearching() || !showing() || !validScroll(metrics) || metrics.max_offset_from_bottom === 0) return "unhandled";
+      const base = previewRef.current ?? metrics.offset_from_bottom;
+      const target = Math.max(0, Math.min(metrics.max_offset_from_bottom, base + Math.round(lines)));
+      if (target === base) return "edge";
+      writeRef.current(target);
+      return "moved";
+    };
+    if (lineScroll) lineScroll.current = scrollLines;
     const unregisterCancellation = viewportIntent.registerScrollCancellation(() => {
       desired = null; drag.current = null; version++;
       previewRef.current = null;
@@ -235,16 +267,18 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
     return () => {
       alive = false; desired = null; version++; heldPage = null;
       if (pageScroll?.current === scrollPage) pageScroll.current = null;
+      if (lineScroll?.current === scrollLines) lineScroll.current = null;
       previewRef.current = null;
       unregisterCancellation();
       if (timer !== null) clearTimeout(timer);
+      if (gapTimer !== null) clearTimeout(gapTimer);
       parsed.dispose(); rendered.dispose(); resized.dispose(); observer.disconnect();
       mount?.removeEventListener("scroll", paint);
       document.removeEventListener("visibilitychange", visibility);
       refreshRef.current = () => {}; writeRef.current = () => {};
       drag.current = null;
     };
-  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent, pageScroll, onApplicationPage]);
+  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent, pageScroll, lineScroll, onApplicationPage]);
 
   useEffect(() => { refreshRef.current(); }, [search?.result]);
   const metrics = validScroll(scroll) ? { ...scroll, offset_from_bottom: preview === null ? scroll.offset_from_bottom : Math.min(scroll.max_offset_from_bottom, preview) } : null;

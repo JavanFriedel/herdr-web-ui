@@ -387,7 +387,19 @@ interface PaneAttachment {
   takeOver?: (client: Client) => void;
   /** the next look for the terminal a pane lives on after herdr ended its attach; a closed attachment cancels it */
   relookup?: ReturnType<typeof setTimeout>;
+  /** output read from the pty and not yet sent: one frame per OUTPUT_BATCH_MS (flushPaneOutput) */
+  outputBatch?: string;
+  outputTimer?: ReturnType<typeof setTimeout>;
 }
+
+/**
+ * herdr writes a redraw in several pieces, and each read from the pty used to go out as its own
+ * frame, each acknowledged and parsed on its own. Reads within OUTPUT_BATCH_MS go out as one frame
+ * (a burst past OUTPUT_BATCH_MAX at once): a scroll's redraw arrives whole, for a few milliseconds
+ * of delay.
+ */
+const OUTPUT_BATCH_MS = 4;
+const OUTPUT_BATCH_MAX = 32 * 1024;
 
 function send(client: Client, message: ServerMessage): number {
   if (client.data.closing) return 0;
@@ -1111,7 +1123,24 @@ export function createServer(
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
     if (!attachment) return;
+    // nothing about the pane overtakes its output: an exit, a resume or a geometry follows what it printed
+    flushPaneOutput(paneId, attachment);
     for (const client of attachment.clients) send(client, message);
+  }
+
+  /**
+   * Sends a pane's batched output to its clients. The replay takes it now too, not when it was
+   * read: a client that joined meanwhile got the replay without it, and gets it here with the rest.
+   */
+  function flushPaneOutput(paneId: string, attachment: PaneAttachment): void {
+    clearTimeout(attachment.outputTimer);
+    attachment.outputTimer = undefined;
+    const data = attachment.outputBatch ?? "";
+    attachment.outputBatch = "";
+    if (!data || attachments.get(paneId) !== attachment) return;
+    attachment.replay.append(data);
+    for (const client of attachment.clients) sendOutput(client, paneId, data);
+    reconcileOutput(paneId);
   }
 
   function broadcastAll(message: ServerMessage): void {
@@ -1139,6 +1168,7 @@ export function createServer(
     if (!attachment) return;
     for (const member of attachment.clients) holdPending(member, paneId);
     attachments.delete(paneId);
+    clearTimeout(attachment.outputTimer);
     clearTimeout(attachment.retry);
     clearTimeout(attachment.relookup);
     // its members hold nothing on this pane any more (a pty that exited leaves them on
@@ -1252,9 +1282,9 @@ export function createServer(
     // a read can last, instead of ending their terminal.
     const forward = (data: string): void => {
       if (attachments.get(paneId) !== attachment) return;
-      attachment.replay.append(data);
-      for (const client of attachment.clients) sendOutput(client, paneId, data);
-      reconcileOutput(paneId);
+      attachment.outputBatch = (attachment.outputBatch ?? "") + data;
+      if (attachment.outputBatch.length >= OUTPUT_BATCH_MAX) flushPaneOutput(paneId, attachment);
+      else attachment.outputTimer ??= setTimeout(() => flushPaneOutput(paneId, attachment), OUTPUT_BATCH_MS);
     };
     let retries = 0;
     let refusedSince: number | null = null;
@@ -2738,6 +2768,9 @@ export function createServer(
     },
 
     websocket: {
+      // A terminal redraw is escape sequences and runs of spaces, and JSON escapes every ESC:
+      // deflated, a redraw is about a quarter of its size on a phone's link
+      perMessageDeflate: true,
       // This transport cap also covers clients that predate application ACKs.
       backpressureLimit: OUTPUT_HARD_BYTES,
       closeOnBackpressureLimit: true,

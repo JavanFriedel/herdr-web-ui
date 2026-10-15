@@ -1681,6 +1681,7 @@ export function App() {
                         split={herdrSplit || splitOn}
                         terminalCursorStyle={settings.terminalCursorStyle}
                         terminalCursorBlink={settings.terminalCursorBlink}
+                        terminalRenderer={settings.terminalRenderer}
                         terminalWheelSpeed={settings.terminalWheelSpeed}
                         terminalFontFamily={settings.terminalFontFamily}
                         theme={resolvedTheme}

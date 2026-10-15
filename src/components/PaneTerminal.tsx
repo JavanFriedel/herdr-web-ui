@@ -34,7 +34,8 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { FindBar } from "./FindBar.tsx";
-import { TerminalViewportTools, type TerminalSearchState } from "./TerminalViewportTools.tsx";
+import { TerminalViewportTools, type LineScrollResult, type TerminalSearchState } from "./TerminalViewportTools.tsx";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
@@ -45,7 +46,7 @@ import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneControls, PaneView } from "../lib/actions.ts";
 import { usePaneLane } from "../lib/chatLane.ts";
-import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
+import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle, type TerminalRenderer } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -70,6 +71,24 @@ const RELEASE_AFTER_MS = 1000;
 // in the background: taking the pane then sized it for nobody, and herdr's own TUI drew it cut
 // off at its split's edge
 const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
+
+/**
+ * A flick's glide through herdr's history, as an iPhone list decelerates (UIScrollView's normal
+ * rate): the speed keeps GLIDE_DECAY_PER_MS of itself each millisecond, so a flick at v px/ms
+ * travels about v / 0.002 px. It starts from GLIDE_START_SPEED and stops under GLIDE_MIN_SPEED.
+ */
+/**
+ * "auto" draws with the GPU on a touch screen, where the DOM renderer's work for each redraw is
+ * what a scroll waits on. Browser automation keeps the DOM renderer, whose rows the browser
+ * scripts read as text; a script that measures the GPU renderer asks for it by name.
+ */
+function autoGpu(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !navigator.webdriver;
+}
+
+const GLIDE_DECAY_PER_MS = 0.998;
+const GLIDE_START_SPEED = 0.3;
+const GLIDE_MIN_SPEED = 0.02;
 
 export interface PaneTerminalProps {
   onOpenDiff?: (target: import("../lib/repoDiff.ts").RepoDiffTarget) => void;
@@ -115,6 +134,8 @@ export interface PaneTerminalProps {
   terminalCursorStyle: TerminalCursorStyle;
   /** xterm cursorBlink (settings) */
   terminalCursorBlink: boolean;
+  /** which xterm renderer draws (settings): "auto" is the GPU on a touch screen */
+  terminalRenderer: TerminalRenderer;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
@@ -166,6 +187,7 @@ export function PaneTerminal({
   split = false,
   terminalCursorStyle,
   terminalCursorBlink,
+  terminalRenderer,
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
@@ -232,6 +254,12 @@ export function PaneTerminal({
   const baseFontRef = useRef(terminalFontSize);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const pageScroll = useRef<((direction: -1 | 1) => void) | null>(null);
+  const rendererRef = useRef(terminalRenderer); rendererRef.current = terminalRenderer;
+  /** switches the live terminal's renderer (set while a terminal is open) */
+  const applyRendererRef = useRef<(choice: TerminalRenderer) => void>(() => {});
+  useEffect(() => { applyRendererRef.current(terminalRenderer); }, [terminalRenderer]);
+  // a finger's scroll through herdr's history, a line at a time (TerminalViewportTools)
+  const lineScroll = useRef<((lines: number) => LineScrollResult) | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
@@ -594,7 +622,32 @@ export function PaneTerminal({
     };
     host.addEventListener("compositionstart", compositionStart);
     host.addEventListener("compositionend", compositionEnd);
-    const stopGlyphs = adjustTerminalGlyphs(term);
+    // The DOM renderer's spans are fitted for box characters and wide icons (terminalGlyphs.ts); the
+    // GPU renderer draws box characters itself and has no spans to fit. A lost GPU context falls
+    // back to the DOM renderer, as xterm does once the addon is gone.
+    let gpu: WebglAddon | null = null;
+    let stopGlyphs: () => void = adjustTerminalGlyphs(term);
+    const useDom = (): void => {
+      const addon = gpu;
+      gpu = null;
+      addon?.dispose();
+      stopGlyphs();
+      stopGlyphs = adjustTerminalGlyphs(term);
+    };
+    applyRendererRef.current = (choice) => {
+      const wanted = choice === "gpu" || (choice === "auto" && autoGpu());
+      if (wanted && gpu === null) {
+        try {
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => { if (gpu === addon) useDom(); });
+          term.loadAddon(addon);
+          stopGlyphs();
+          stopGlyphs = () => {};
+          gpu = addon;
+        } catch { /* no WebGL2 here: the DOM renderer stays */ }
+      } else if (!wanted && gpu !== null) useDom();
+    };
+    applyRendererRef.current(rendererRef.current);
     // Let the browser emit a paste event, which xterm already handles (including
     // bracketed paste). Otherwise Ctrl+V becomes 0x16, triggering the agent's
     // image-paste shortcut against the server's clipboard and canceling text paste.
@@ -1422,8 +1475,62 @@ export function PaneTerminal({
     // Two fingers pinch the font size: the font follows them locally, and the shared pty resizes once when one lifts.
     let touchX = 0;
     let touchY = 0;
-    /** finger travel of this gesture not yet sent as a wheel report */
+    /** finger travel of this gesture not yet sent as a wheel report or a line of history */
     let touchPixels = 0;
+    /** the finger's last moves (time, y), for its speed when it lifts */
+    let samples: { t: number; y: number }[] = [];
+    /** the glide after a flick, as a phone's list keeps going: a frame request while it runs */
+    let glide: number | null = null;
+    const stopGlide = (): void => { if (glide !== null) cancelAnimationFrame(glide); glide = null; };
+    /**
+     * `pixels` of travel (old position minus new: positive brings newer lines) turned into scrolling.
+     * Herdr's history moves a line per row of travel through lineScroll, which keeps one request in
+     * flight; a program that has the screen to itself gets the wheel, three lines a report as before.
+     * Whether the travel could go on (false at an edge, or for the wheel when `wheel` is false).
+     */
+    const scrollTravel = (pixels: number, wheel: boolean): boolean => {
+      touchPixels += pixels;
+      const row = cellHeight();
+      const lines = row > 0 ? Math.trunc(touchPixels / row) : 0;
+      if (lines !== 0) {
+        const result = lineScroll.current?.(-lines) ?? "unhandled";
+        if (result !== "unhandled") {
+          touchPixels -= lines * row;
+          if (result === "edge") { touchPixels = 0; return false; }
+          return true;
+        }
+      }
+      if (lineScroll.current?.(0) !== "unhandled" && lines === 0) return true;
+      if (!wheel) return false;
+      const { steps, rest } = wheelSteps(touchPixels, row * HERDR_MOUSE_SCROLL_LINES);
+      touchPixels = rest;
+      sendTouchWheels(steps);
+      return true;
+    };
+    /** px per ms of the finger over its last 100 ms, signed as travel (positive brings newer lines) */
+    const releaseSpeed = (): number => {
+      const now = performance.now();
+      const recent = samples.filter((sample) => now - sample.t <= 100);
+      const first = recent[0], last = recent.at(-1);
+      if (!first || !last || last.t - first.t < 16 || now - last.t > 60) return 0;
+      return (first.y - last.y) / (last.t - first.t);
+    };
+    /** Keeps scrolling at `speed` px/ms, slowing as an iPhone list does, until slow, an edge, or a touch. */
+    const startGlide = (speed: number): void => {
+      stopGlide();
+      let velocity = speed;
+      let last = performance.now();
+      const step = (now: number): void => {
+        const elapsed = Math.min(64, now - last);
+        last = now;
+        // a glide runs only through herdr's history: a program's wheel would queue a report per step
+        if (!scrollTravel(velocity * elapsed, false)) { glide = null; return; }
+        velocity *= Math.pow(GLIDE_DECAY_PER_MS, elapsed);
+        if (Math.abs(velocity) < GLIDE_MIN_SPEED) { glide = null; return; }
+        glide = requestAnimationFrame(step);
+      };
+      glide = requestAnimationFrame(step);
+    };
     let tracking = false;
     let pinch: { first: number; second: number; startSize: number; startDistance: number; size: number } | null = null;
     // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
@@ -1493,10 +1600,14 @@ export function PaneTerminal({
       }
       tracking = event.touches.length === 1;
       touchPixels = 0;
+      // a touch stops a glide where it is, as on any phone list
+      stopGlide();
       const first = event.touches[0];
+      samples = [];
       if (tracking && first) {
         touchX = first.clientX;
         touchY = first.clientY;
+        samples.push({ t: performance.now(), y: first.clientY });
       }
     };
     const onTouchMove = (event: TouchEvent): void => {
@@ -1539,12 +1650,11 @@ export function PaneTerminal({
         host.scrollBy(across, delta);
         return;
       }
-      // xterm sends herdr one report per wheel event however far it went, and herdr scrolls a
-      // few lines per report: one line-mode wheel per that many rows of finger travel keeps a
-      // swipe as far as a slow drag, and the text under the finger
-      const { steps, rest } = wheelSteps(touchPixels + delta, cellHeight() * HERDR_MOUSE_SCROLL_LINES);
-      touchPixels = rest;
-      sendTouchWheels(steps);
+      samples.push({ t: performance.now(), y: first.clientY });
+      if (samples.length > 12) samples.splice(0, samples.length - 12);
+      // herdr's history follows the finger a line per row of travel; a program's screen gets the
+      // wheel as before: xterm sends one report per wheel event, herdr scrolls a few lines per report
+      scrollTravel(delta, true);
     };
     /** `steps` line-mode wheel reports at the finger, each one herdr scroll step in the sign's direction */
     const sendTouchWheels = (steps: number): void => {
@@ -1560,7 +1670,11 @@ export function PaneTerminal({
       // a lifted one-finger drag sends what is left once it reaches half a step: a flick shorter
       // than one step still scrolls, and a long drag loses at most half a step at its end
       if (tracking && event.type === "touchend" && !pinchStroke && !adopted()) {
-        sendTouchWheels(finalStep(touchPixels, cellHeight() * HERDR_MOUSE_SCROLL_LINES));
+        const speed = releaseSpeed();
+        // a flick through herdr's history glides on; a program's wheel keeps its last half step
+        if (lineScroll.current?.(0) !== "unhandled") {
+          if (Math.abs(speed) >= GLIDE_START_SPEED) startGlide(speed);
+        } else sendTouchWheels(finalStep(touchPixels, cellHeight() * HERDR_MOUSE_SCROLL_LINES));
       }
       touchPixels = 0;
       tracking = false;
@@ -1772,6 +1886,7 @@ export function PaneTerminal({
       window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+      stopGlide();
       host.removeEventListener("touchstart", onTouchStart, { capture: true });
       host.removeEventListener("touchmove", onTouchMove, { capture: true });
       host.removeEventListener("touchend", onTouchEnd, { capture: true });
@@ -1816,6 +1931,7 @@ export function PaneTerminal({
       off();
       if (!machineSessions) session.close();
       stopGlyphs();
+      applyRendererRef.current = () => {};
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
       if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
@@ -2609,6 +2725,7 @@ export function PaneTerminal({
         <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
           pageScroll={chatView ? undefined : pageScroll}
+          lineScroll={chatView ? undefined : lineScroll}
           onApplicationPage={sendApplicationPage}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}

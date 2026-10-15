@@ -59,6 +59,9 @@ export type DefaultView = "auto" | "chat" | "terminal";
 /** the terminal cursor's shape (xterm's cursorStyle); a program can still change it with DECSCUSR */
 export type TerminalCursorStyle = "block" | "bar" | "underline";
 export const TERMINAL_CURSOR_STYLES: readonly TerminalCursorStyle[] = ["block", "bar", "underline"];
+/** How the terminal draws: the GPU (xterm's WebGL renderer), the DOM, or auto (the GPU on a touch screen) */
+export type TerminalRenderer = "auto" | "gpu" | "dom";
+export const TERMINAL_RENDERERS: readonly TerminalRenderer[] = ["auto", "gpu", "dom"];
 
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBindings.ts";
 
@@ -103,6 +106,8 @@ export interface Settings {
   terminalCursorStyle: TerminalCursorStyle;
   /** xterm cursorBlink */
   terminalCursorBlink: boolean;
+  /** which xterm renderer draws the terminal (TerminalRenderer) */
+  terminalRenderer: TerminalRenderer;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
@@ -204,7 +209,7 @@ type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily" | "uiFontFamily" | "codeFontFamily"
   | "quickReplies" | "usageOrder" | "usageHidden"
   // not collected: the report's schema (shared/telemetry.ts) has no field for it yet
-  | "diffStyle" | "contrast" | "fontSmoothing" | "panelMotion" | "uiFontSize"
+  | "diffStyle" | "contrast" | "fontSmoothing" | "panelMotion" | "uiFontSize" | "terminalRenderer"
   // not collected: only System mode reads them, and `palette` is already reported
   | "paletteLight" | "paletteDark">;
 
@@ -285,7 +290,7 @@ export const SETTING_SCOPE = {
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
-  quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device",
+  quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device", terminalRenderer: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", uiFontFamily: "device", codeFontFamily: "device", chatWidth: "device", enterSends: "device", chatAutocorrect: "device", attachLimit: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
@@ -327,6 +332,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalCursorStyle: "block",
   terminalCursorBlink: true,
+  terminalRenderer: "auto",
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
   paneClipboard: true,
@@ -515,6 +521,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? record["terminalCursorStyle"] as TerminalCursorStyle
       : DEFAULT_SETTINGS.terminalCursorStyle,
     terminalCursorBlink: typeof record["terminalCursorBlink"] === "boolean" ? record["terminalCursorBlink"] : DEFAULT_SETTINGS.terminalCursorBlink,
+    terminalRenderer: TERMINAL_RENDERERS.includes(record["terminalRenderer"] as TerminalRenderer) ? record["terminalRenderer"] as TerminalRenderer : DEFAULT_SETTINGS.terminalRenderer,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
       : DEFAULT_SETTINGS.terminalWheelSpeed,
