@@ -301,6 +301,7 @@ export const JA: Record<string, string> = {
   "Connecting…": "接続しています…",
   "Connected": "接続済み",
   "Reconnecting…": "再接続しています…",
+  "Reconnect now": "今すぐ再接続",
   "Steps": "ステップ",
   "Last synced {time}": "最終同期 {time}",
   "No network": "ネットワークなし",
