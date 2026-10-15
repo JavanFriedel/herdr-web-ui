@@ -4,6 +4,8 @@
      buttons above the list. Aliases of existing tokens only. */
   --side-gutter: var(--space-3);
   --side-box: var(--control-h);
+  /* the fold gutter that leads a top-level row: a chevron, or room for one */
+  --side-fold: var(--space-6);
   --side-row: var(--control-h);
   --side-row-2: calc(var(--control-h) + var(--space-3));
   --side-action: var(--space-6);
@@ -150,25 +152,45 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   cursor: pointer;
 }
 
-/* One indent level. A linked worktree keeps herdr's repository workspace as its parent and sits
-   under that row's mark, clear of the folder column. The fill stays as wide as the list and the
-   row's content moves. */
-.worktree-children .workspace-header { padding-left: var(--side-box); }
+/* One indent level. A linked worktree keeps herdr's repository workspace as its parent: a guide
+   line drops from the parent's chevron and the worktree's mark sits one step in from the parent's.
+   The fill stays as wide as the list and the row's content moves. */
+.worktree-children {
+  position: relative;
+}
 
-/* The folder that leads a workspace row. It is the fold, and a button, when linked worktrees
-   sit under the workspace: open while they show, closed while they are folded. */
+.worktree-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--space-2);
+  left: calc(var(--side-fold) / 2);
+  width: var(--hairline);
+  background: var(--border-strong);
+  pointer-events: none;
+}
+
+.worktree-children .workspace-header { padding-left: calc(var(--side-fold) + var(--space-3)); }
+
+/* The fold gutter that leads a top-level row. It is a chevron button when linked worktrees sit
+   under the workspace, and empty room otherwise, so the marks of every top-level row line up. */
+.workspace-fold-space {
+  flex: 0 0 var(--side-fold);
+  width: var(--side-fold);
+}
+
 .sidebar-row-action.workspace-toggle {
-  flex: 0 0 var(--side-box);
-  width: var(--side-box);
+  flex: 0 0 var(--side-fold);
+  width: var(--side-fold);
   align-self: stretch;
   height: auto;
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--text-dim);
 }
 
 .sidebar-row-action.workspace-toggle svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 /* how many worktrees a closed folder holds: the closed glyph alone looks like any workspace's */
@@ -430,6 +452,13 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   background: currentColor;
 }
 
+/* a ready agent is a quiet ring: alive and waiting for nothing, so a row with no mark at all is a shell */
+.sidebar-status[data-status="idle"] .sidebar-status-dot {
+  border: calc(var(--hairline) * 1.5) solid currentColor;
+  background: transparent;
+  opacity: 0.7;
+}
+
 .sidebar-status.badge-restore-error { color: var(--status-blocked); }
 
 @keyframes sidebar-breathe {
@@ -532,14 +561,14 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
     --side-action: var(--touch-target);
   }
 
-  /* The folder that folds a worktree group takes a finger's width, centered on its column so the
+  /* The chevron that folds a worktree group takes a finger's width, centered on its gutter so the
      marks beside it do not move; it lies over the row it would otherwise hand the tap to. */
   .sidebar-row-action.workspace-toggle {
     position: relative;
     z-index: 1;
     flex-basis: var(--touch-target);
     width: var(--touch-target);
-    margin-inline: calc((var(--side-box) - var(--touch-target)) / 2);
+    margin-inline: calc((var(--side-fold) - var(--touch-target)) / 2);
   }
 
   /* Row menus stay visible on touch. */

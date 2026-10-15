@@ -82,9 +82,10 @@ try {
   await page.reload();
   const group = page.locator(`section.machine-group.is-current[aria-label="PC ${pc.name}"]`);
   await group.waitFor({ timeout: 10_000 });
-  await group.getByRole("button", { name: `Manage ${pc.name}`, exact: true }).click();
-  await group.getByRole("button", { name: "Remove PC", exact: true }).click();
-  await group.getByRole("button", { name: "Confirm remove PC", exact: true }).click();
+  // the PC's name opens its details; Remove PC there asks once more in a dialog
+  await group.getByRole("button", { name: `Details for ${pc.name}`, exact: true }).click();
+  await page.getByRole("menuitem", { name: "Remove PC", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove PC", exact: true }).click();
   await page.locator(`section.machine-group.is-current[aria-label="PC ${local.name}"]`).waitFor();
   await page.waitForFunction(() => document.querySelector(`section.machine-group[aria-label="PC QA remote"]`) === null);
   // the roster without the PC came in while the request was held: a note it raised is still up

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, FolderOpen, GitBranch, Layers, ListChecks, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Ellipsis, FolderOpen, GitBranch, Layers, ListChecks, Pencil, Plus, Terminal, Trash2, TriangleAlert, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -82,8 +82,9 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
   // a compact cell draws only the states that ask for a look: a red question mark while the agent
   // waits for an answer, a green dot once it has finished and was not looked at, a working-coloured
   // dot that breathes while it runs, a working-coloured ring held still while its turn waits on
-  // background work. Ready and unknown keep the cell, its label and its tooltip
-  const dot = value === "working" || value === "done" || value === "waiting";
+  // background work, and a quiet dim ring while it is ready. Unknown keeps the cell, its label and
+  // its tooltip, and draws nothing
+  const dot = value === "working" || value === "done" || value === "waiting" || value === "idle";
   return (
     <span
       className={`badge badge-${value}${compact ? " sidebar-status" : ""}`}
@@ -313,15 +314,14 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
 
   /**
    * What leads a row: the coding agent in the pane the row opens, so the mark never promises an
-   * agent a click would not reach. A shell is a terminal, a linked worktree without an agent its branch.
+   * agent a click would not reach. A shell is a terminal, a linked worktree without an agent its branch,
+   * and a top-level shell shows its project's own icon when it has one.
    */
-  const rowMark = (pane: PaneInfo, linked: boolean) => {
+  const rowMark = (pane: PaneInfo, linked: boolean, faviconRoot: string | null) => {
     const mark = paneMark(agentByPane.get(pane.pane_id));
-    return (
-      <span className="sidebar-mark" aria-hidden="true">
-        {mark !== null ? <AgentMark agent={mark} size={18} /> : linked ? <GitBranch /> : <Terminal />}
-      </span>
-    );
+    const glyph = <span className="sidebar-mark" aria-hidden="true">{linked ? <GitBranch /> : <Terminal />}</span>;
+    if (mark !== null) return <span className="sidebar-mark" aria-hidden="true"><AgentMark agent={mark} size={18} /></span>;
+    return !linked && faviconRoot !== null ? <WorkspaceFavicon root={faviconRoot} fallback={glyph} /> : glyph;
   };
   /** the mark in words, for a reader who cannot see it */
   const markName = (pane: PaneInfo): string => {
@@ -580,7 +580,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
       <div className="workspace-header"
         onMouseDownCapture={(event) => { if ((event.button === 2 || (event.button === 0 && event.ctrlKey)) && !(event.target as HTMLElement).closest("input")) event.preventDefault(); }}
         onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
-        {/* a workspace leads with its folder, which is the fold when linked worktrees sit under it */}
+        {/* a top-level row keeps a narrow fold gutter, a chevron when linked worktrees sit under it,
+            so every row's mark lines up and a worktree's guide line drops from the chevron */}
         {nested ? null : children.length > 0 && repoKey !== undefined ? <button
           type="button"
           className="sidebar-row-action workspace-toggle"
@@ -589,7 +590,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           aria-expanded={!collapsed}
           aria-controls={contentsId}
           onClick={() => setWorktreeCollapsed(repoKey, !collapsed)}
-        >{collapsed ? <Folder aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}</button> : <WorkspaceFavicon root={workspace.worktree?.checkout_path ?? pane.cwd ?? null} fallback={<span className="sidebar-mark workspace-folder" aria-hidden="true"><Folder /></span>} />}
+        >{collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button> : <span className="workspace-fold-space" aria-hidden="true" />}
         <div
           className="pane-select workspace-select"
           role="button"
@@ -611,7 +612,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             actions.selectPane(pane.pane_id);
           }}
         >
-          {rowMark(pane, workspace.worktree?.is_linked_worktree === true)}
+          {rowMark(pane, workspace.worktree?.is_linked_worktree === true, nested ? null : workspace.worktree?.checkout_path ?? pane.cwd ?? null)}
           {editingWorkspace ? <input
             className="input workspace-rename-input"
             aria-label={t("Workspace name")}

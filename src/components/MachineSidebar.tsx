@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpCircle, ChevronDown, ChevronRight, Download, Monitor, MonitorCog, Pencil, Plug, Plus, RefreshCw, Settings, Trash2, Unplug, X } from "lucide-react";
 import type { Machine, MachineState, MachineUpdate } from "../../shared/machines.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import { answerMachineSetup, machineRequest } from "../lib/api.ts";
@@ -8,6 +8,8 @@ import { keepDismissed, noticeKey, readDismissed, waitingMachines, writeDismisse
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { AgentSidebar } from "./AgentSidebar.tsx";
 import { SidebarActivityProvider, useSidebarActivityState } from "../lib/sidebarActivity.tsx";
 import { UsageMeters } from "./UsageMeters.tsx";
@@ -52,7 +54,9 @@ export function MachineSidebar(props: Props) {
 function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
   const t = useT();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-web-ui:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
-  const [editing, setEditing] = useState(false);
+  // the PC's details sheet, opened from its name; Rename and Remove start from there
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(machine.name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,8 +66,8 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   // the state disables the buttons; the ref refuses a second click that lands before that render
   const inFlight = useRef(false);
-  const mutate = async (method: string, body?: unknown) => {
-    if (inFlight.current) return;
+  const mutate = async (method: string, body?: unknown): Promise<boolean> => {
+    if (inFlight.current) return false;
     inFlight.current = true;
     setBusy(true);
     // The selected PC moves to this one before it is removed: the server tells every tab the
@@ -71,8 +75,8 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
     // as one removed elsewhere ("That link's PC is not set up here"). A failure puts it back.
     const leaving = method === "DELETE" && props.selectedMachineId === machine.id ? { pane: props.selectedPaneId } : null;
     if (leaving) props.onSelect("local", null);
-    try { await machineRequest(`/${machine.id}`, method, body); setError(null); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); if (leaving) props.onSelect(machine.id, leaving.pane); }
+    try { await machineRequest(`/${machine.id}`, method, body); setError(null); return true; }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); if (leaving) props.onSelect(machine.id, leaving.pane); return false; }
     finally { inFlight.current = false; setBusy(false); }
   };
   const actions: AppActions = { ...props.actions, selectPane: (id) => props.onSelect(machine.id, id), openNewSession: () => props.onNew(machine.id) };
@@ -80,17 +84,33 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
     setCollapsed(!collapsed);
     try { localStorage.setItem(`herdr-web-ui:pc-collapsed:${machine.id}`, collapsed ? "0" : "1"); } catch {}
   };
+  const ssh = machine.kind === "ssh";
+  const reachable = machine.enabled && Boolean(machine.target);
+  const menuItems: RowMenuItem[] = [
+    ...(ssh && !["setup", "connect"].includes(machine.action_required ?? "") && reachable ? [{ id: "reconnect", label: t("Reconnect / setup"), icon: RefreshCw, run: () => props.onSetup(machine) }] : []),
+    ...(ssh && machine.action_required !== "connect" && reachable ? [{ id: "update-bridge", label: t("Update bridge…"), icon: ArrowUpCircle, run: () => props.onSetup(machine, true) }] : []),
+    ...(ssh && !machine.herdr_profile_id ? [{ id: "toggle-enabled", label: t(machine.enabled ? "Disconnect" : "Connect"), icon: machine.enabled ? Unplug : Plug, run: () => void mutate("PATCH", { enabled: !machine.enabled }) }] : []),
+    ...(ssh && !machine.herdr_profile_id ? [{ id: "rename", label: t("Rename…"), icon: Pencil, divider: true, run: () => { setName(machine.name); setRenaming(true); } }] : []),
+    ...(ssh && !machine.herdr_profile_id ? [{ id: "remove", label: t("Remove PC"), icon: Trash2, danger: true, run: () => setConfirmDelete(true) }] : []),
+    // the host has nothing of its own to change here: its sheet is where another PC is added
+    ...(ssh ? [] : [{ id: "add-pc", label: t("Add PC"), icon: MonitorCog, run: props.actions.openAddPc }]),
+  ];
+  const details = [
+    t(machine.action_required === "setup" ? "Setup needed" : STATE_WORD[machine.state]),
+    machine.target ? machine.target.destination + (machine.target.port ? `:${machine.target.port}` : "") : null,
+    machine.herdr ? t("herdr {version} · protocol {protocol}", { version: machine.herdr.version, protocol: machine.herdr.protocol }) : null,
+  ].filter((part): part is string => part !== null);
   // the PC's name is the head of its workspaces, and the caret beside its + the one fold over them
   return <section className={`machine-group${props.selectedMachineId === machine.id ? " is-current" : ""}${online ? "" : " is-offline"}`} aria-label={t("PC {name}", { name: machine.name })}>
     <header className="machine-header">
-      <div className="machine-title">
+      {/* the name opens the PC's details: its state, address and herdr, and what can be done about them */}
+      <button type="button" className="machine-title" aria-haspopup="menu" aria-expanded={menuAnchor !== null} aria-label={t("Details for {name}", { name: machine.name })} title={details.join(" · ")} onClick={(event) => setMenuAnchor(menuAnchor ? null : event.currentTarget)}>
         <span className="sidebar-mark" aria-hidden="true"><Monitor /></span>
         <span className="machine-name">{machine.name}</span>
         {/* the computer this app's server runs on; on a phone "this PC" read as the phone */}
         {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on")}>{t("Host")}</span>}
-        <span className={`machine-dot is-${machine.action_required === "setup" ? "setup" : machine.state}`} title={machine.action_required === "setup" ? t("Setup needed") : t(STATE_WORD[machine.state])} aria-hidden="true" />
-      </div>
-      {machine.kind === "ssh" && <button className="sidebar-row-action machine-manage" aria-label={t("Manage {name}", { name: machine.name })} title={t("Manage PC")} aria-expanded={editing} onClick={() => { setEditing(!editing); setConfirmDelete(false); }}><SlidersHorizontal aria-hidden="true" /></button>}
+        <span className={`machine-dot is-${machine.action_required === "setup" ? "setup" : machine.state}`} aria-hidden="true" />
+      </button>
       {/* the fold over this PC's workspaces sits beside the + */}
       <button className="sidebar-row-action machine-toggle" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand {name}", { name: machine.name }) : t("Collapse {name}", { name: machine.name })} title={collapsed ? t("Expand {name}", { name: machine.name }) : t("Collapse {name}", { name: machine.name })} onClick={toggle}>{collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</button>
       <button className="sidebar-row-action machine-new" disabled={!online} aria-label={t("New workspace on {name}", { name: machine.name })} title={t("New workspace")} onClick={() => props.onNew(machine.id)}><Plus aria-hidden="true" /></button>
@@ -100,17 +120,27 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
       <span className="machine-state-word">{t(STATE_WORD[machine.state])}</span>
       {machine.error && <span className="machine-state-detail">{machine.error}</span>}
     </p>}
-    {editing && <div className="machine-controls">
-      {machine.herdr_profile_id ? <p className="field-hint">{t("Managed by herdr. Rename, disable or remove it there.")}</p> : <form onSubmit={(e) => { e.preventDefault(); void mutate("PATCH", { name }); }}><label className="field"><span className="field-label">{t("PC name")}</span><input className="input" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label><button className="btn" type="submit" disabled={busy}>{t("Rename")}</button></form>}
-      {/* The first removal click only arms the action; the second is destructive. */}
+    {menuAnchor && <RowMenu
+      anchor={menuAnchor}
+      title={machine.name}
+      header={<div className="machine-sheet-head">
+        <span className="machine-sheet-name">{machine.name}</span>
+        <span className={`machine-sheet-state is-${machine.action_required === "setup" ? "setup" : machine.state}`}>{details[0]}</span>
+        {details.slice(1).map((line) => <span key={line} className="machine-sheet-line">{line}</span>)}
+        {machine.error && <span className="machine-sheet-line machine-sheet-error">{machine.error}</span>}
+        {machine.herdr_profile_id && <span className="machine-sheet-line">{t("Managed by herdr. Rename, disable or remove it there.")}</span>}
+      </div>}
+      items={menuItems}
+      onClose={() => setMenuAnchor(null)}
+    />}
+    {renaming && <form className="machine-controls" onSubmit={(e) => { e.preventDefault(); void mutate("PATCH", { name }).then((done) => { if (done) setRenaming(false); }); }}>
+      <label className="field"><span className="field-label">{t("PC name")}</span><input className="input" value={name} maxLength={100} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setRenaming(false); }} /></label>
       <div className="machine-control-buttons">
-        {!machine.herdr_profile_id && <button className="btn" disabled={busy} onClick={() => void mutate("PATCH", { enabled: !machine.enabled })}>{t(machine.enabled ? "Disconnect" : "Connect")}</button>}
-        {!["setup", "connect"].includes(machine.action_required ?? "") && <button className="btn" disabled={!machine.enabled || !machine.target} onClick={() => props.onSetup(machine)}>{t("Reconnect / setup")}</button>}
-        {machine.action_required !== "connect" && <button className="btn" disabled={!machine.enabled || !machine.target} onClick={() => props.onSetup(machine, true)}>{t("Update bridge…")}</button>}
-        {!machine.herdr_profile_id && <button className={confirmDelete ? "btn btn-danger" : "btn btn-ghost"} disabled={busy} onClick={() => { if (confirmDelete) void mutate("DELETE"); else setConfirmDelete(true); }}>{t(confirmDelete ? "Confirm remove PC" : "Remove PC")}</button>}
+        <button className="btn btn-primary" type="submit" disabled={busy}>{t("Rename")}</button>
+        <button className="btn btn-ghost" type="button" onClick={() => setRenaming(false)}>{t("Cancel")}</button>
       </div>
-      {confirmDelete && <p className="field-hint">{t("Removes this registration. Remote sessions keep running.")}</p>}
-    </div>}
+    </form>}
+    {confirmDelete && <ConfirmDialog title={t("Remove {name}?", { name: machine.name })} body={t("Removes this registration. Remote sessions keep running.")} confirmLabel={t("Remove PC")} onConfirm={async () => { await mutate("DELETE"); }} onClose={() => setConfirmDelete(false)} />}
     {error && <p className="machine-error" role="alert">{error}</p>}
     {!collapsed && <div className={online ? "" : "machine-offline"} inert={!online}>
       {!online && !machine.snapshot ? <p className="tree-state machine-empty" role="status">{t("No saved sessions")}</p> : <MachineContext.Provider value={machine.id}><Sidebar snapshot={machine.snapshot} online={online} selectedPaneId={props.selectedMachineId === machine.id ? props.selectedPaneId : null} actions={actions} /></MachineContext.Provider>}
